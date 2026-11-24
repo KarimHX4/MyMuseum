@@ -573,7 +573,7 @@ function museums(){
   return [...m.values()].sort((a,b)=>b.items[0].createdAt-a.items[0].createdAt);
 }
 function ocard(it){
-  return `<button class="ocard" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci">${thumb(it)}</div>`)}<h3>${esc(it.titre)}</h3><div class="meta">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>${it.pending?'<span class="tag l">À identifier</span> ':''}${it.favori?'<span class="tag">Coup de cœur</span> ':''}${it.enPret?'<span class="tag l">Prêt</span>':''}</button>`;
+  return `<button class="ocard" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci" style="${ciStyle(it)}">${thumb(it)}</div>`)}<h3>${esc(it.titre)}</h3><div class="meta">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>${it.pending?'<span class="tag l">À identifier</span> ':''}${it.favori?'<span class="tag">Coup de cœur</span> ':''}${it.enPret?'<span class="tag l">Prêt</span>':''}</button>`;
 }
 function bindCards(root){root.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>openFiche(b.dataset.o))}
 
@@ -643,7 +643,7 @@ function renderFiche(){
   const noAI=!f.accroche&&!f.contexte;
   root.innerHTML=`<button class="back" id="bk">← ${esc(it.musee)}</button>
   ${it.pending?`<div class="pend"><b>Œuvre à identifier.</b> La photo et le lieu sont gardés ; identifiez-la quand vous aurez du réseau.<button class="btn main small" id="idn">Identifier maintenant</button></div>`:''}
-  <div class="fiche"><div class="left">${frameWrap(it,thumb(it)||'<div class="nophoto">Pas de photo</div>','bigfr')}
+  <div class="fiche"><div class="left">${frameWrap(it,thumb(it)?(dimsOf(it)&&isFlat(it)?`<div class="ci bigci" style="${ciStyle(it)};--r:${ratioOf(it).toFixed(3)}">${thumb(it)}</div>`:thumb(it)):'<div class="nophoto">Pas de photo</div>','bigfr')}
     ${useRefFor(it)&&wd&&wd.image?`<p class="src" style="margin-top:8px">Image de référence · <a href="https://commons.wikimedia.org/wiki/File:${encodeURIComponent(wd.image)}" target="_blank" rel="noopener">Wikimedia Commons</a></p>`:''}
     <div class="frow"><button class="btn small" id="frBtn" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="1"/><rect x="7" y="7" width="10" height="10"/></svg>Cadre · ${esc(frameLabel(frameOf(it)))}</button>${wd&&wd.image&&it.photo?`<div class="segm sm" id="srcSeg"><button data-s="own" aria-pressed="${!useRefFor(it)}">Ma photo</button><button data-s="ref" aria-pressed="${useRefFor(it)}">Image de référence</button></div>`:''}</div>
     <div class="pick" id="fpick" hidden>${framePicker(it.frame||'',autoFrameFor(it))}</div>
@@ -862,17 +862,20 @@ function locFor(name){
   if(norm(name)===norm(vis.musee)&&vis.lat!=null)return {lat:vis.lat,lon:vis.lon};
   const c=LS.get('mm.coords',{})[norm(name)||'_'];return c||null;
 }
-const CAT='<path d="M14 76C2 78 0 66 6 58c2-3 5-2 4 1-4 7-2 13 6 12z"/><path d="M22 34C12 42 9 58 12 72c1 5 5 8 11 8h21c5 0 7-3 5-8-2-10-2-26-7-36z"/><circle cx="38" cy="24" r="12"/><path d="M28 17l1-13 8 9zM40 13l8-9 1 13z"/>';
+const CAT='<path d="M52 4 59 17Q66 15 73 17L80 6C84 14 85 24 83 32 81 40 77 45 72 48 77 52 80 58 80 66 80 80 78 96 79 108 80 113 84 116 85 119 85 121 83 122 80 122H70C69 119 68 116 66 116 65 118 64 121 62 122H34C24 122 17 116 16 104 15 88 22 72 34 62 40 57 46 52 50 47 47 43 46 37 47 31 48 22 50 12 52 4Z"/><path d="M30 121C18 122 8 117 6 107 5 99 8 92 13 91 16 91 17 95 13 97 10 100 11 107 16 111 21 114 27 115 33 115Z"/>';
+const isFlat=it=>autoFrameFor(it)!=='nu';
+function ratioOf(it){const d=dimsOf(it);if(d&&isFlat(it))return d.w/d.h;const m=dispDims(it);return m.pw&&m.ph?m.pw/m.ph:.8}
+const ciStyle=it=>`aspect-ratio:${Math.max(.45,Math.min(2.2,ratioOf(it))).toFixed(3)}`;
 const fmtN=n=>(Math.round(n*10)/10).toLocaleString('fr-FR');
 function scaleSVG(d){
   const c=Math.max(150,d.h/2+15),top=c+d.h/2;
-  const W=20+24+40+d.w+20,fs=Math.max(top,W)/20,H=top+20+fs*2.2,floor=top+15;
-  const x=20+24+40,y=floor-(c+d.h/2);
+  const W=20+26+40+d.w+20,fs=Math.max(top,W)/20,H=top+20+fs*2.2,floor=top+15;
+  const x=20+26+40,y=floor-(c+d.h/2);
   return `<svg viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}" role="img" aria-label="Taille de l’œuvre à côté d’un chat de 32 cm">
   <line x1="0" y1="${floor}" x2="${W}" y2="${floor}" stroke="currentColor" stroke-opacity=".35" stroke-width="${(fs/7).toFixed(2)}"/>
-  <g transform="translate(20 ${floor-32}) scale(.4)" fill="currentColor" fill-opacity=".45">${CAT}</g>
+  <g transform="translate(20 ${floor-32}) scale(.256)" fill="currentColor" fill-opacity=".45">${CAT}</g>
   <rect x="${x}" y="${y.toFixed(1)}" width="${d.w}" height="${d.h}" fill="var(--wall)" fill-opacity=".18" stroke="var(--brass)" stroke-width="${(fs/4).toFixed(2)}"/>
-  <text x="32" y="${(floor+fs*1.6).toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="middle" fill="currentColor" fill-opacity=".7">chat · 32 cm</text>
+  <text x="33" y="${(floor+fs*1.6).toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="middle" fill="currentColor" fill-opacity=".7">chat · 32 cm</text>
   <text x="${(x+d.w/2).toFixed(1)}" y="${(floor+fs*1.6).toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="middle" fill="currentColor">${fmtN(d.h)} × ${fmtN(d.w)} cm</text></svg>`;
 }
 function wallHTML(items,wc){
@@ -881,9 +884,12 @@ function wallHTML(items,wc){
   const top=Math.max(190,...d.map(x=>x.c+x.h/2));
   const avail=Math.max(230,Math.min(380,(innerHeight||800)*.36));
   const s=Math.min(2.6,avail/top);
-  const person=`<svg class="person" viewBox="0 0 60 80" width="${(24*s).toFixed(1)}" height="${(32*s).toFixed(1)}" fill="${ink}" aria-hidden="true">${CAT}</svg>`;
-  const works=d.map(x=>{const wp=x.w*s,hp=x.h*s,u=Math.max(.16,Math.min(.85,Math.min(wp,hp)/300));const u2=u.toFixed(2);
-    return `<button class="hang" data-o="${esc(x.it.id)}" style="margin-bottom:${((x.c-x.h/2)*s).toFixed(1)}px">${frameWrap(x.it,thumb(x.it).replace('<img ',`<img style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px" `)||`<div style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px;background:#2a2326"></div>`,'',`--u:${u2}`)}<span class="cartel2"><i>${esc(x.it.titre)}</i>${esc(x.it.artiste||'')}${x.est?'<span class="est">taille estimée</span>':''}</span></button>`}).join('');
+  const person=`<svg class="person" viewBox="0 0 100 125" width="${(25.6*s).toFixed(1)}" height="${(32*s).toFixed(1)}" fill="${ink}" aria-hidden="true">${CAT}</svg>`;
+  const works=d.map(x=>{const wp=x.w*s,hp=x.h*s,u=Math.max(.16,Math.min(.85,Math.min(wp,hp)/300)),bottom=(x.c-x.h/2)*s;
+    const fw=wp+2*Math.round(30*u),below=bottom>=96,cw=below?Math.round(Math.max(130,Math.min(210,fw))):128,mr=below?Math.max(44,cw-fw+36):cw+30;
+    const it=x.it,info=[it.technique,dimsOf(it)?fmtN(x.h)+' × '+fmtN(x.w)+' cm':''].filter(Boolean).join(' · ');
+    const img=thumb(it).replace('<img ',`<img style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px" `)||`<div style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px;background:#2a2326"></div>`;
+    return `<button class="hang" data-o="${esc(it.id)}" style="margin-bottom:${bottom.toFixed(1)}px;margin-right:${Math.round(mr)}px">${frameWrap(it,img,'',`--u:${u.toFixed(2)}`)}<span class="cartel2 ${below?'b':'r'}" style="width:${cw}px"><b>${esc(it.artiste||'Artiste inconnu')}</b><span class="t"><i>${esc(it.titre)}</i>${it.date?', '+esc(it.date):''}</span>${info?`<small>${esc(info)}</small>`:''}${x.est?'<em>taille estimée</em>':''}</span></button>`}).join('');
   return `<div class="wallsc" style="--wc:${wc}"><div class="wallin">${person}${works}</div></div>`;
 }
 
@@ -1061,7 +1067,7 @@ async function renderMap(){
   if(pts.length===1)map.setView(pts[0],14);else if(pts.length)map.fitBounds(pts,{padding:[40,40],maxZoom:14});
   const n=$('#mapnote');if(n)n.textContent=(pts.length?plural(pts.length,'musée')+' sur la carte.':'Aucun musée localisé.')+(miss.length?' Position introuvable pour : '+miss.join(', ')+'.':'');
 }
-function tlRow(it){return `<button class="tlrow" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci">${thumb(it)}</div>`)}<span><b>${esc(it.titre)}</b><small>${esc([it.artiste,it.musee].filter(Boolean).join(' · '))}</small>${it.date||(it.wd&&it.wd.date)?`<small class="yr">${esc(it.date||it.wd.date)}</small>`:''}</span></button>`}
+function tlRow(it){return `<button class="tlrow" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci" style="${ciStyle(it)}">${thumb(it)}</div>`)}<span><b>${esc(it.titre)}</b><small>${esc([it.artiste,it.musee].filter(Boolean).join(' · '))}</small>${it.date||(it.wd&&it.wd.date)?`<small class="yr">${esc(it.date||it.wd.date)}</small>`:''}</span></button>`}
 function renderFrise(){
   const rows=S.items.map(it=>({it,y:yearOf(it)}));
   const dated=rows.filter(r=>r.y!=null).sort((a,b)=>a.y-b.y),und=rows.filter(r=>r.y==null);

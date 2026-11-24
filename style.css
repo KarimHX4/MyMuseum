@@ -107,6 +107,7 @@ textarea{resize:vertical;min-height:90px}
 .ocard{text-align:start;border:0;padding:0;background:none}
 .ocard .fr{--u:.42}
 .ocard .ci{aspect-ratio:4/5;overflow:hidden;background:#2a2326}
+.ogrid{align-items:start}
 .ocard .ci img{width:100%;height:100%;object-fit:cover;display:block}
 .ocard h3{font-size:19px;font-style:italic;margin-top:10px}
 .ocard .meta{margin-top:2px}
@@ -120,7 +121,10 @@ textarea{resize:vertical;min-height:90px}
 .back{background:none;border:0;color:var(--mute);padding:8px 0;min-height:44px;font-weight:500}
 .fiche{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(20px,4vw,52px);align-items:start}
 .fiche .left{position:sticky;top:84px}
-.fiche .bigfr{cursor:zoom-in}
+.fiche .left{container-type:inline-size}
+.fiche .bigfr{cursor:zoom-in;width:fit-content;max-width:100%;margin-inline:auto}
+.bigci{width:min(calc(100cqw - 72px),calc(68vh * var(--r)));overflow:hidden;background:#1b1618}
+.bigci img{width:100%!important;height:100%!important;max-height:none!important;object-fit:cover!important}
 .fiche .bigfr img{width:100%;height:auto;max-height:72vh;object-fit:contain;background:#1b1618}
 .fiche .nophoto{aspect-ratio:4/5;display:grid;place-items:center;background:#2a2326;color:#efe6dd}
 .fiche h2{font-size:clamp(34px,4.5vw,52px);font-style:italic}
@@ -200,14 +204,19 @@ details.wsec p{margin:6px 0 10px}
 .room h3{font-size:24px;margin:0 0 4px}
 .room .meta{margin-bottom:8px}
 .wallsc{overflow-x:auto;border-radius:14px;background:var(--wc);-webkit-overflow-scrolling:touch}
-.wallin{display:flex;align-items:flex-end;gap:96px;padding:28px 110px 0 28px;min-width:100%;width:max-content;background:linear-gradient(transparent calc(100% - 22px),rgb(0 0 0/.18) calc(100% - 22px)),linear-gradient(90deg,transparent,transparent)}
+.wallin{display:flex;align-items:flex-end;gap:0;padding:28px 40px 0 28px;min-width:100%;width:max-content;background:linear-gradient(transparent calc(100% - 22px),rgb(0 0 0/.18) calc(100% - 22px)),linear-gradient(90deg,transparent,transparent)}
 .wallin::after{content:"";flex:none;width:1px}
 .hang{position:relative;border:0;background:none;padding:0;flex:none;cursor:pointer}
 .hang .fr img{object-fit:cover}
-.hang .cartel2{position:absolute;left:calc(100% + 10px);bottom:0;width:84px;background:#fbfaf7;color:#2a2326;padding:5px 7px;border-radius:2px;text-align:left;font-size:11.5px;line-height:1.25;box-shadow:0 1px 3px rgb(0 0 0/.25)}
-.hang .cartel2 i{display:block;font-family:"Cormorant Garamond",Georgia,serif;font-size:13.5px;font-weight:600}
-.hang .est{display:block;color:#8a7f78;font-size:10.5px;margin-top:2px}
-.person{flex:none;align-self:flex-end;opacity:.55}
+.hang .cartel2{position:absolute;background:#fbfaf6;color:#2a2326;padding:7px 10px 8px;border-radius:1px;text-align:left;font:12px/1.3 Figtree,system-ui,sans-serif;box-shadow:0 1px 2px rgb(0 0 0/.22),0 6px 12px -6px rgb(0 0 0/.4)}
+.hang .cartel2.b{left:0;top:calc(100% + 14px)}
+.hang .cartel2.r{left:calc(100% + 14px);bottom:0}
+.hang .cartel2 b{display:block;font-weight:600;font-size:12px}
+.hang .cartel2 .t{display:block;font-family:"Cormorant Garamond",Georgia,serif;font-size:15px;line-height:1.15;margin:2px 0 3px}
+.hang .cartel2 .t i{font-weight:600}
+.hang .cartel2 small{display:block;color:#6d625d;font-size:11px;line-height:1.3}
+.hang .cartel2 em{display:block;font-style:normal;color:#9a8f88;font-size:10.5px;margin-top:3px}
+.person{flex:none;align-self:flex-end;opacity:.55;margin-right:48px}
 .wallnote{font-size:13px;color:var(--mute);margin:6px 2px 0}
 /* échelle dans la fiche */
 .scale svg{width:100%;max-width:360px;height:auto;display:block}
