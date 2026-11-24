@@ -1,15 +1,30 @@
 # MyMuseum
 
-Carnet de visite de musée pour Android (et navigateur).
-Vous photographiez une œuvre qui vous plaît : elle est **reconnue par Claude**, une **fiche** est rédigée (contexte, description, analyse, artiste, anecdotes, détails à regarder, œuvres liées, lectures), puis l'œuvre est **rangée dans le dossier de son musée**, avec un sous-dossier par **exposition temporaire**.
+Carnet de visite de musée pour Android (et navigateur), **100 % gratuit**.
+Vous photographiez une œuvre qui vous plaît : elle est identifiée, une **fiche** est créée à partir de **Wikidata** et **Wikipédia** (avec une analyse **Gemini** si vous ajoutez une clé gratuite), puis l'œuvre est **rangée dans le dossier de son musée**, avec un sous-dossier par **exposition temporaire**.
 
 ## Fonctionnement
 
-- **Photographier** : prenez une photo ou importez-en une. Claude propose une identification avec un niveau de confiance et d'autres pistes ; vous validez ou corrigez avant que la fiche soit créée.
-- **Je visite** : le musée, la ville et l'exposition en cours. Avec la **détection automatique**, l'app compare votre position aux musées d'OpenStreetMap à l'ouverture et quand vous y revenez après 20 minutes. Si vous êtes à l'intérieur d'un musée ou à moins de 120 m, il est rempli tout seul ; sinon, les lieux proches s'affichent et vous touchez le vôtre. Vous pouvez toujours saisir le lieu à la main : une saisie manuelle n'est pas remplacée automatiquement pendant 4 heures.
-- **Musées** : un dossier par musée, séparé en « Collections permanentes » et « Exposition « … » » avec les dates de visite. Les œuvres prêtées par une autre institution portent l'étiquette *Prêt*.
-- **Œuvres** : toutes les fiches, avec une recherche (titre, artiste, musée, mot-clé) et un filtre coups de cœur.
-- **Fiche** : notes personnelles, questions à Claude sur l'œuvre (réponses conservées), coup de cœur, correction du lieu, régénération, copie.
+- **Je visite** : le musée, la ville et l'exposition en cours. Avec la **détection automatique**, l'app compare votre position aux musées d'OpenStreetMap à l'ouverture et au retour après 20 minutes. Si vous êtes dans un musée ou à moins de 120 m, il est rempli tout seul ; sinon, les lieux proches s'affichent. La saisie à la main reste toujours possible.
+- **Photographier** : la photo de l'œuvre est toujours gardée. Pour l'identifier :
+  - **avec une clé Gemini** : la photo suffit, Gemini propose l'œuvre et l'app la relie automatiquement à Wikidata / Wikipédia ;
+  - **sans clé** : cherchez l'œuvre par titre ou artiste (les œuvres du musée détecté apparaissent en premier), ou **photographiez le cartel** : il est lu sur le téléphone (Tesseract) puis recherché dans Wikidata.
+  - Pas de réseau ? **Identifier plus tard** garde la photo et le lieu.
+- **Fiche** : données Wikidata (artiste, date, technique, dimensions, mouvement, n° d'inventaire, ce qui est représenté), article Wikipédia par sections, présentation de l'artiste, image de référence ; avec Gemini en plus : contexte, analyse, détails à regarder, anecdotes, œuvres liées, et questions sur l'œuvre. Notes personnelles, coups de cœur, correction du lieu.
+- **Musées** : un dossier par musée, séparé en « Collections permanentes » et « Exposition « … » ». Les œuvres prêtées par une autre institution portent l'étiquette *Prêt*.
+
+## Clé Gemini gratuite (facultative)
+
+1. Ouvrez <https://aistudio.google.com/app/apikey> et connectez-vous avec un compte Google.
+2. Acceptez les conditions, puis **Create API key** (Google crée au besoin un projet par défaut).
+3. Copiez la clé (elle commence par `AIza…`).
+4. Dans MyMuseum : **Réglages** (roue dentée) → collez la clé → **Vérifier la clé**.
+
+**Pour que cela reste à 0 €** : ne cliquez jamais sur « Set up billing » / « Upgrade » dans AI Studio et n'associez aucun moyen de paiement. Sans compte de facturation lié, le projet reste sur l'offre gratuite : quand le quota gratuit est atteint, l'API répond « quota dépassé » (l'app le signale et propose de continuer sans IA), elle ne facture pas. Vos quotas sont visibles sur <https://aistudio.google.com/rate-limit>.
+
+À savoir : selon la page des tarifs de Google, les contenus envoyés sur l'offre gratuite peuvent servir à améliorer leurs produits. Les photos d'œuvres et vos questions passent donc chez Google ; vos fiches, elles, restent sur le téléphone.
+
+L'app choisit d'elle-même un modèle « Flash » gratuit (Gemini 3.5 Flash en priorité) et passe au suivant si l'un n'est pas disponible gratuitement ou a épuisé son quota du jour.
 
 ## Installer l'APK sur le téléphone
 
@@ -59,4 +74,4 @@ npx cap sync android
 cd android && ./gradlew assembleDebug
 ```
 
-Lieux : © contributeurs OpenStreetMap, via l'API Overpass.
+Lieux : © contributeurs OpenStreetMap (API Overpass) · données Wikidata (CC0) · textes Wikipédia (CC BY-SA) · lecture du cartel : Tesseract.js.
