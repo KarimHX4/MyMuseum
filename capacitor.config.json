@@ -1,7 +1,11 @@
 {
   "appId": "io.github.karimhx4.mymuseum",
   "appName": "MyMuseum",
-  "webDir": "www",
-  "server": { "androidScheme": "https" },
-  "android": { "backgroundColor": "#5c1825" }
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#5c1825"
+  }
 }

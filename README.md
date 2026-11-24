@@ -35,25 +35,24 @@ Les fiches et les photos sont stockées **uniquement sur l'appareil**. **Réglag
 
 ## Version web
 
-Le dossier `www/` est une application web autonome, sans étape de compilation :
-
-- en local : `npm run serve`, puis <http://localhost:8080> ;
-- en ligne : **Settings → Pages → Source : GitHub Actions** ; le workflow *Version web* publie alors `www/` à chaque envoi. Sur un téléphone, « Ajouter à l'écran d'accueil » l'installe comme une app.
+L'application est à la racine du dépôt, sans étape de compilation, et GitHub Pages la sert à **<https://karimhx4.github.io/MyMuseum/>**. Sur un téléphone, « Ajouter à l'écran d'accueil » l'installe comme une app. En local : `npm run serve`, puis <http://localhost:8080>.
 
 ## Développement
 
 ```
-www/                 l'application (HTML, CSS, JS)
+index.html, app.js,  l'application web (servie telle quelle par GitHub Pages)
+style.css, sw.js…
 android-res/         icônes Android (générées par scripts/make_icons.py)
-scripts/             génération des icônes, préparation du projet Android
+scripts/             copie de l'app dans dist/ pour Android, icônes, préparation du projet Android
 android-signing/     clé de signature stable
-.github/workflows/   build de l'APK, publication web
+.github/workflows/   build de l'APK
 ```
 
 Build Android en local (Node 22, JDK 21, SDK Android) :
 
 ```
 npm install
+node scripts/build-web.mjs
 npx cap add android
 node scripts/android-setup.mjs
 npx cap sync android

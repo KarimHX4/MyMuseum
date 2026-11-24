@@ -33,7 +33,7 @@ def full(size, radius=0.22, circle=False, scale=1.0):
     bg.alpha_composite(motif(size, scale))
     return bg
 
-icons = os.path.join(ROOT, 'www', 'icons'); os.makedirs(icons, exist_ok=True)
+icons = os.path.join(ROOT, 'icons'); os.makedirs(icons, exist_ok=True)
 full(192).save(os.path.join(icons, 'icon-192.png'))
 full(512).save(os.path.join(icons, 'icon-512.png'))
 full(512, radius=0, scale=0.8).save(os.path.join(icons, 'maskable-512.png'))

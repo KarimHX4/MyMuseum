@@ -4,7 +4,8 @@
   "private": true,
   "description": "Carnet de visite de musée : photo → reconnaissance → fiche, rangée par musée et exposition.",
   "scripts": {
-    "serve": "npx --yes http-server www -p 8080 -c-1",
+    "serve": "npx --yes http-server . -p 8080 -c-1",
+    "build:web": "node scripts/build-web.mjs",
     "android:setup": "node scripts/android-setup.mjs"
   },
   "dependencies": {

@@ -28,6 +28,7 @@ jobs:
 
       - name: Projet Android (Capacitor)
         run: |
+          node scripts/build-web.mjs
           npx cap add android
           node scripts/android-setup.mjs
           npx cap sync android
