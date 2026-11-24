@@ -1,0 +1,19 @@
+{
+  "name": "mymuseum",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Carnet de visite de musée : photo → reconnaissance → fiche, rangée par musée et exposition.",
+  "scripts": {
+    "serve": "npx --yes http-server www -p 8080 -c-1",
+    "android:setup": "node scripts/android-setup.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/filesystem": "^8.0.0",
+    "@capacitor/share": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
+  }
+}

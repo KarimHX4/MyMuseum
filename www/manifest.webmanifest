@@ -1,0 +1,16 @@
+{
+  "name": "MyMuseum",
+  "short_name": "MyMuseum",
+  "description": "Photographiez une œuvre au musée : elle est reconnue, expliquée et rangée par musée.",
+  "lang": "fr",
+  "start_url": "./#capturer",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f3ee",
+  "theme_color": "#5c1825",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

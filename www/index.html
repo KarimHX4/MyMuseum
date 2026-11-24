@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#5c1825">
+<title>MyMuseum</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="wall"><div class="bar">
+  <h1>MyMuseum</h1>
+  <nav>
+    <button data-v="capturer">Photographier</button>
+    <button data-v="musees">Musées</button>
+    <button data-v="oeuvres">Œuvres</button>
+    <button data-v="reglages" aria-label="Réglages" class="gear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </nav>
+</div></header>
+<main>
+<section class="view" id="v-capturer">
+  <div class="visit">
+    <div class="vhead">
+      <h2>Je visite</h2>
+      <button class="btn small" id="locBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.3-7-11.5a7 7 0 0 1 14 0C19 14.7 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Me localiser</button>
+    </div>
+    <p class="note" id="locStatus"></p>
+    <div class="chips" id="locChips"></div>
+    <div class="g3">
+      <label class="f">Musée ou lieu<input id="vMusee" list="dlMusees" placeholder="Musée du Louvre" autocomplete="off"></label>
+      <label class="f">Ville<input id="vVille" placeholder="Paris" autocomplete="off"></label>
+      <label class="f">Exposition temporaire (facultatif)<input id="vExpo" list="dlExpos" placeholder="Vide = collections permanentes" autocomplete="off"></label>
+    </div>
+  </div>
+  <div class="stage">
+    <div class="frame"><div class="mat"><div class="canvas" id="canvas">
+      <div class="empty" id="empty">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="6" y="16" width="52" height="38" rx="5"/><path d="M22 16l4-7h12l4 7"/><circle cx="32" cy="35" r="11"/><circle cx="32" cy="35" r="5"/></svg>
+        <div class="serif" style="font-size:24px">Une œuvre vous plaît ?</div>
+        <div class="row" style="justify-content:center">
+          <label class="btn brass"><input type="file" accept="image/*" capture="environment" id="inCam" hidden>Prendre une photo</label>
+          <label class="btn"><input type="file" accept="image/*" id="inImp" hidden>Importer</label>
+        </div>
+        <div class="dropnote">ou déposez une image ici</div>
+      </div>
+    </div></div></div>
+    <div class="side" id="side"></div>
+  </div>
+</section>
+<section class="view" id="v-musees"></section>
+<section class="view" id="v-oeuvres"></section>
+<section class="view" id="v-fiche"></section>
+<section class="view" id="v-reglages"></section>
+</main>
+<datalist id="dlMusees"></datalist><datalist id="dlExpos"></datalist>
+<input type="file" id="inBackup" accept="application/json,.json" hidden>
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
