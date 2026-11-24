@@ -251,3 +251,6 @@ details.wsec p{margin:6px 0 10px}
 .brow .bt i{display:block;height:100%;background:var(--wall);border-radius:6px}
 .brow .bn{text-align:right;font-variant-numeric:tabular-nums;color:var(--mute)}
 @media(max-width:600px){.brow{grid-template-columns:minmax(0,8em) minmax(0,1fr) 2em;font-size:14px}}
+.frow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.segm.sm{padding:2px}.segm.sm button{padding:6px 12px;min-height:38px;font-size:14px}
+#fpick{margin-top:10px;padding:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px}

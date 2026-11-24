@@ -21,7 +21,7 @@ let tt;function toast(m,ms=4200){const t=$('#toast');t.textContent=m;t.hidden=fa
 async function getJSON(url,opt){let r;try{r=await fetch(url,opt)}catch(e){throw new Error('Pas de connexion internet (ou service injoignable).')}if(!r.ok)throw new Error('Erreur '+r.status+' de '+new URL(url).hostname);return r.json()}
 
 /* ---------- réglages ---------- */
-const cfg=Object.assign({gemKey:'',model:'',models:[],autoLoc:true,frame:'auto',rangement:'origine'},LS.get('mm.cfg2',null)||{autoLoc:LS.get('mm.cfg',{}).autoLoc!==false});
+const cfg=Object.assign({gemKey:'',model:'',models:[],autoLoc:true,frame:'auto',rangement:'origine',preferRef:false},LS.get('mm.cfg2',null)||{autoLoc:LS.get('mm.cfg',{}).autoLoc!==false});
 const saveCfg=()=>LS.set('mm.cfg2',cfg);
 const hasAI=()=>!!cfg.gemKey;
 
@@ -36,11 +36,24 @@ const DB={
   clear(){return this.tx('readwrite',s=>s.clear())}
 };
 const urls=new Map();
-function photoURL(it){
-  if(!it.photo)return '';
-  const c=urls.get(it.id);if(c&&c.b===it.photo)return c.u;
+const useRefFor=it=>!!((it.useRef===undefined||it.useRef===null?cfg.preferRef:it.useRef)&&it.refPhoto);
+const dispDims=it=>useRefFor(it)?{pw:it.refpw,ph:it.refph}:{pw:it.pw,ph:it.ph};
+function photoURL(it,which){
+  const b=which==='own'?it.photo:which==='ref'?it.refPhoto:(useRefFor(it)?it.refPhoto:it.photo);
+  if(!b)return '';const key=it.id+(b===it.refPhoto?'|r':'|o');
+  const c=urls.get(key);if(c&&c.b===b)return c.u;
   if(c)URL.revokeObjectURL(c.u);
-  const u=URL.createObjectURL(it.photo);urls.set(it.id,{b:it.photo,u});return u;
+  const u=URL.createObjectURL(b);urls.set(key,{b,u});return u;
+}
+function dropURLs(id){for(const k of [id+'|o',id+'|r']){const c=urls.get(k);if(c){URL.revokeObjectURL(c.u);urls.delete(k)}}}
+async function fetchRef(it){
+  const file=it.wd&&it.wd.image;if(!file)throw new Error('Pas d’image de référence pour cette œuvre.');
+  const j=await getJSON('https://commons.wikimedia.org/w/api.php?'+new URLSearchParams({action:'query',titles:'File:'+file,prop:'imageinfo',iiprop:'url',iiurlwidth:1600,format:'json',origin:'*'}));
+  const pg=Object.values((j.query&&j.query.pages)||{})[0],ii=pg&&pg.imageinfo&&pg.imageinfo[0],url=ii&&(ii.thumburl||ii.url);
+  if(!url)throw new Error('Image de référence introuvable.');
+  let r;try{r=await fetch(url)}catch(e){throw new Error('Image de référence indisponible (connexion ?).')}
+  if(!r.ok)throw new Error('Image de référence indisponible.');
+  const blob=await r.blob();const m=await measure(blob);return {refPhoto:blob,refpw:m.pw||0,refph:m.ph||0};
 }
 
 /* ---------- état ---------- */
@@ -580,7 +593,7 @@ function renderMusees(){
     <div class="row" style="justify-content:space-between;margin-bottom:16px"><div class="segm" id="mv"><button data-m="mur" aria-pressed="${mode==='mur'}">Mur</button><button data-m="liste" aria-pressed="${mode!=='mur'}">Liste</button></div>
     <div class="swatches" id="wsw">${WALLS.map(([c,n])=>`<button data-c="${c}" title="Mur ${esc(n)}" aria-label="Mur ${esc(n)}" style="background:${c}" aria-pressed="${c===wc}"></button>`).join('')}</div></div>`+
     order.map(([k,x])=>`<div class="room"><h3>${gTitle(x)}</h3><div class="meta">${plural(x.items.length,'œuvre')} · ${x.items.length>1?'vues':'vue'} le ${[...x.dates].filter(Boolean).sort().map(fdate).map(esc).join(', ')}</div>${mode==='mur'?wallHTML(x.items,wc):`<div class="ogrid">${x.items.map(ocard).join('')}</div>`}</div>`).join('')+
-    (mode==='mur'?'<p class="wallnote">Accroché à l’échelle : la silhouette mesure 1,70 m et chaque œuvre est centrée à 1,50 m du sol. Faites glisser le mur pour parcourir la salle ; touchez une œuvre pour ouvrir sa fiche.</p>':'');
+    (mode==='mur'?'<p class="wallnote">Accroché à l’échelle : le chat mesure 32 cm et chaque œuvre est centrée à 1,50 m du sol. Faites glisser le mur pour parcourir la salle ; touchez une œuvre pour ouvrir sa fiche.</p>':'');
     $('#bk').onclick=()=>{S.museum=null;renderMusees();scrollTo(0,0)};bindCards(root);
     root.querySelectorAll('#mv button').forEach(b=>b.onclick=()=>{LS.set('mm.mview',b.dataset.m);renderMusees()});
     root.querySelectorAll('#wsw button').forEach(b=>b.onclick=()=>{const w=LS.get('mm.walls',{});w[g.key]=b.dataset.c;LS.set('mm.walls',w);renderMusees()});
@@ -631,7 +644,9 @@ function renderFiche(){
   root.innerHTML=`<button class="back" id="bk">← ${esc(it.musee)}</button>
   ${it.pending?`<div class="pend"><b>Œuvre à identifier.</b> La photo et le lieu sont gardés ; identifiez-la quand vous aurez du réseau.<button class="btn main small" id="idn">Identifier maintenant</button></div>`:''}
   <div class="fiche"><div class="left">${frameWrap(it,thumb(it)||'<div class="nophoto">Pas de photo</div>','bigfr')}
-    <div class="meta" style="margin-top:12px">Cadre</div><div class="pick" id="fpick">${framePicker(it.frame||'',autoFrameFor(it))}</div>
+    ${useRefFor(it)&&wd&&wd.image?`<p class="src" style="margin-top:8px">Image de référence · <a href="https://commons.wikimedia.org/wiki/File:${encodeURIComponent(wd.image)}" target="_blank" rel="noopener">Wikimedia Commons</a></p>`:''}
+    <div class="frow"><button class="btn small" id="frBtn" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="1"/><rect x="7" y="7" width="10" height="10"/></svg>Cadre · ${esc(frameLabel(frameOf(it)))}</button>${wd&&wd.image&&it.photo?`<div class="segm sm" id="srcSeg"><button data-s="own" aria-pressed="${!useRefFor(it)}">Ma photo</button><button data-s="ref" aria-pressed="${useRefFor(it)}">Image de référence</button></div>`:''}</div>
+    <div class="pick" id="fpick" hidden>${framePicker(it.frame||'',autoFrameFor(it))}</div>
     <div class="seen">Vue le <b>${esc(fdate(it.visite))}</b> à <b>${esc(cap1(it.vuA||it.musee))}</b>${(it.vuVille||it.ville)?', '+esc(it.vuVille||it.ville):''}${it.expo?`<br>Exposition temporaire « <b>${esc(it.expo)}</b> »${it.enPret&&it.conservation?' — prêt de '+esc(homeName(it.conservation)):''}`:norm(it.vuA||it.musee)===norm(it.musee)?'<br>Collections permanentes':''}${norm(it.vuA||it.musee)!==norm(it.musee)?`<br>Rangée dans <b>${esc(cap1(it.musee))}</b>`:''}</div>
     <div class="toolbar"><button class="btn small fav" id="fv" aria-pressed="${!!it.favori}">${it.favori?'Coup de cœur':'Ajouter aux coups de cœur'}</button><button class="btn small" id="cp">Copier la fiche</button>${it.photo?'<button class="btn small" id="crp">Recadrer</button>':''}${it.pending?'':'<button class="btn small" id="rg">Mettre à jour</button><button class="btn small" id="rid">Changer d’œuvre</button>'}<button class="btn small" id="dl">Supprimer</button></div>
     <details class="edit"><summary>Corriger l’œuvre ou le lieu</summary>
@@ -641,7 +656,6 @@ function renderFiche(){
       <div class="g2"><label class="f">Exposition temporaire<input id="eX" list="dlExpos"></label><label class="f">Date de visite<input id="eW" type="date"></label></div>
       <label class="f">Rangée dans le dossier<input id="eM" list="dlMusees"></label>
       <button class="btn main small" id="es">Enregistrer</button></details>
-    ${wd&&wd.image?`<figure class="ref"><img src="${esc(commonsThumb(wd.image,800))}" alt="" loading="lazy" onerror="this.closest('figure').remove()"><figcaption>Image de référence · <a href="https://commons.wikimedia.org/wiki/File:${encodeURIComponent(wd.image)}" target="_blank" rel="noopener">Wikimedia Commons</a></figcaption></figure>`:''}
   </div>
   <div><h2>${esc(it.titre)}</h2><div class="who">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>
     ${spec.length?`<dl class="spec">${spec.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`:''}
@@ -666,8 +680,13 @@ function renderFiche(){
   </div></div>`;
   const cur=()=>S.items.find(x=>x.id===it.id)||it;
   $('#bk').onclick=()=>{S.museum=norm(it.musee)||'_';show('musees')};
-  const big=root.querySelector('.bigfr');if(big&&it.photo)big.onclick=()=>{const c=cur();openViewer([{label:'Ma photo',src:photoURL(c)},...(c.wd&&c.wd.image?[{label:'Image de référence',src:commonsThumb(c.wd.image,2400)}]:[])])};
-  root.querySelectorAll('#fpick [data-f]').forEach(b=>b.onclick=async()=>{await upd(it.id,{frame:b.dataset.f});renderFiche()});
+  const big=root.querySelector('.bigfr');if(big&&(it.photo||it.refPhoto))big.onclick=()=>{const c=cur();const own={label:'Ma photo',src:photoURL(c,'own')},ref=c.wd&&c.wd.image?{label:'Image de référence',src:c.refPhoto?photoURL(c,'ref'):commonsThumb(c.wd.image,2400)}:null;openViewer(useRefFor(c)?[ref,own]:[own,ref])};
+  const frB=$('#frBtn'),fp=$('#fpick');frB.onclick=()=>{fp.hidden=!fp.hidden;frB.setAttribute('aria-expanded',!fp.hidden)};
+  root.querySelectorAll('#srcSeg [data-s]').forEach(b=>b.onclick=async()=>{const c=cur(),want=b.dataset.s==='ref';if(want===useRefFor(c))return;
+    if(want&&!c.refPhoto){b.textContent='Téléchargement…';try{await upd(it.id,{...(await fetchRef(c)),useRef:true})}catch(e){toast(e.message,5000);renderFiche();return}}
+    else await upd(it.id,{useRef:want});
+    renderFiche()});
+  root.querySelectorAll('#fpick [data-f]').forEach(b=>b.onclick=async()=>{await upd(it.id,{frame:b.dataset.f});renderFiche();toast('Cadre : '+frameLabel(frameOf(cur())))});
   const crp=$('#crp');if(crp)crp.onclick=async()=>{const b=await openCropper(cur().photo);if(b){await upd(it.id,{photo:b,...(await measure(b))});renderFiche();toast('Photo redressée')}};
   $('#nt').value=it.notes||'';$('#nt').addEventListener('change',e=>{upd(it.id,{notes:e.target.value});toast('Notes enregistrées')});
   $('#fv').onclick=async()=>{await upd(it.id,{favori:!cur().favori});renderFiche()};
@@ -683,7 +702,7 @@ function renderFiche(){
     await upd(it.id,p);fillLists();renderFiche();toast(norm(p.musee)!==norm(it.musee)?'Fiche rangée dans '+cap1(p.musee):'Fiche mise à jour')};
   const dl=$('#dl');let armed=false;dl.onclick=async()=>{
     if(!armed){armed=true;dl.textContent='Confirmer la suppression';dl.classList.add('danger');setTimeout(()=>{armed=false;if(dl.isConnected){dl.textContent='Supprimer';dl.classList.remove('danger')}},4000);return}
-    S.items=S.items.filter(x=>x.id!==it.id);const c=urls.get(it.id);if(c){URL.revokeObjectURL(c.u);urls.delete(it.id)}
+    S.items=S.items.filter(x=>x.id!==it.id);dropURLs(it.id);
     try{await DB.del(it.id)}catch(e){}
     toast('Œuvre supprimée');S.museum=norm(it.musee)||'_';show('musees');
   };
@@ -728,6 +747,9 @@ async function renderReglages(){
     <p>« Selon l’époque » choisit le cadre d’après la date et la technique de l’œuvre. Vous pouvez aussi changer le cadre œuvre par œuvre, dans sa fiche.</p>
     <div class="pick" id="spick">${framePicker(cfg.frame==='auto'?'':cfg.frame,null,true)}</div>
   </div>
+  <div class="card"><h3>Image dans le cadre</h3>
+    <label class="sw"><input type="checkbox" id="sRef"><div><b>Afficher l’image de référence quand elle existe</b><span>Pour les œuvres reliées à Wikidata, l’image de Wikimedia Commons remplace votre photo dans les cadres, le mur et les listes (elle est téléchargée une fois puis gardée sur l’appareil). Votre photo reste disponible, et chaque fiche a son propre choix.</span></div></label>
+  </div>
   <div class="card"><h3>Localisation</h3>
     <label class="sw"><input type="checkbox" id="sLoc"><div><b>Détecter automatiquement le musée</b><span>À l’ouverture de l’app (et au retour après 20 min), votre position est comparée aux musées d’OpenStreetMap. Vous pouvez toujours saisir ou corriger le lieu à la main.</span></div></label>
   </div>
@@ -749,6 +771,7 @@ async function renderReglages(){
   const m=$('#sModel');m.value=cfg.model||PREF[0];m.onchange=()=>{cfg.model=m.value;saveCfg()};
   const l=$('#sLoc');l.checked=cfg.autoLoc;l.onchange=()=>{cfg.autoLoc=l.checked;saveCfg();if(l.checked)toast('La détection se fera à la prochaine ouverture, ou avec « Me localiser ».')};
   root.querySelectorAll('#rpick [data-r]').forEach(b=>b.onclick=async()=>{if(cfg.rangement===b.dataset.r)return;cfg.rangement=b.dataset.r;saveCfg();const n=await refileAll();renderReglages();toast(n?plural(n,'œuvre')+' reclassée'+(n>1?'s':''):'Rangement modifié')});
+  const sr=$('#sRef');sr.checked=!!cfg.preferRef;sr.onchange=async()=>{cfg.preferRef=sr.checked;saveCfg();if(sr.checked){const todo=S.items.filter(i=>i.wd&&i.wd.image&&!i.refPhoto&&i.useRef!==false);if(todo.length){toast('Téléchargement de '+plural(todo.length,'image')+' de référence…');let ok=0;for(const i of todo){try{await upd(i.id,await fetchRef(i));ok++}catch(e){}}toast(ok+' / '+todo.length+' image'+(todo.length>1?'s':'')+' de référence téléchargée'+(ok>1?'s':''))}}};
   root.querySelectorAll('#spick [data-f]').forEach(b=>b.onclick=()=>{cfg.frame=b.dataset.f||'auto';saveCfg();renderReglages()});
   $('#sExp').onclick=exportBackup;
   $('#sImp').onclick=()=>$('#inBackup').click();
@@ -761,7 +784,7 @@ const blobToDataURL=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload
 async function exportBackup(){
   if(!S.items.length){toast('Rien à exporter pour le moment');return}
   toast('Préparation de la sauvegarde…');
-  const items=[];for(const it of S.items){const o={...it};if(it.photo)o.photo=await blobToDataURL(it.photo);items.push(o)}
+  const items=[];for(const it of S.items){const o={...it};if(it.photo)o.photo=await blobToDataURL(it.photo);if(it.refPhoto)o.refPhoto=await blobToDataURL(it.refPhoto);items.push(o)}
   const json=JSON.stringify({app:'MyMuseum',version:2,exported:new Date().toISOString(),items});
   const name='MyMuseum-sauvegarde-'+today()+'.json';
   try{
@@ -781,7 +804,7 @@ $('#inBackup').addEventListener('change',async e=>{
     const data=JSON.parse(await file.text());
     if(!data||data.app!=='MyMuseum'||!Array.isArray(data.items))throw new Error('ce fichier n’est pas une sauvegarde MyMuseum');
     let n=0;
-    for(const o of data.items){if(!o||!o.id)continue;const it={...o};if(typeof o.photo==='string'&&o.photo.startsWith('data:image/'))it.photo=await (await fetch(o.photo)).blob();else delete it.photo;await DB.put(it);n++}
+    for(const o of data.items){if(!o||!o.id)continue;const it={...o};if(typeof o.photo==='string'&&o.photo.startsWith('data:image/'))it.photo=await (await fetch(o.photo)).blob();else delete it.photo;if(typeof o.refPhoto==='string'&&o.refPhoto.startsWith('data:image/'))it.refPhoto=await (await fetch(o.refPhoto)).blob();else delete it.refPhoto;await DB.put(it);n++}
     S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);fillLists();
     toast(plural(n,'œuvre')+' importée'+(n>1?'s':''));if(S.view==='reglages')renderReglages();
   }catch(er){toast('Import impossible : '+er.message,6000)}
@@ -839,26 +862,26 @@ function locFor(name){
   if(norm(name)===norm(vis.musee)&&vis.lat!=null)return {lat:vis.lat,lon:vis.lon};
   const c=LS.get('mm.coords',{})[norm(name)||'_'];return c||null;
 }
-const PERSON='<circle cx="25" cy="11" r="10"/><path d="M13 25h24c4 0 7 3 7 7v45c0 3-2 5-5 5h-3v78c0 3-2 5-5 5h-3c-3 0-5-2-5-5v-58h-2v58c0 3-2 5-5 5h-3c-3 0-5-2-5-5V82h-3c-3 0-5-2-5-5V32c0-4 3-7 7-7z"/>';
+const CAT='<path d="M14 76C2 78 0 66 6 58c2-3 5-2 4 1-4 7-2 13 6 12z"/><path d="M22 34C12 42 9 58 12 72c1 5 5 8 11 8h21c5 0 7-3 5-8-2-10-2-26-7-36z"/><circle cx="38" cy="24" r="12"/><path d="M28 17l1-13 8 9zM40 13l8-9 1 13z"/>';
 const fmtN=n=>(Math.round(n*10)/10).toLocaleString('fr-FR');
 function scaleSVG(d){
-  const c=Math.max(150,d.h/2+15),top=Math.max(170,c+d.h/2);
-  const W=20+50+40+d.w+20,fs=Math.max(top,W)/20,H=top+20+fs*2.2,floor=top+15;
-  const x=20+50+40,y=floor-(c+d.h/2);
-  return `<svg viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}" role="img" aria-label="Taille de l’œuvre à côté d’une personne de 1,70 m">
+  const c=Math.max(150,d.h/2+15),top=c+d.h/2;
+  const W=20+24+40+d.w+20,fs=Math.max(top,W)/20,H=top+20+fs*2.2,floor=top+15;
+  const x=20+24+40,y=floor-(c+d.h/2);
+  return `<svg viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}" role="img" aria-label="Taille de l’œuvre à côté d’un chat de 32 cm">
   <line x1="0" y1="${floor}" x2="${W}" y2="${floor}" stroke="currentColor" stroke-opacity=".35" stroke-width="${(fs/7).toFixed(2)}"/>
-  <g transform="translate(20 ${floor-170})" fill="currentColor" fill-opacity=".4">${PERSON}</g>
+  <g transform="translate(20 ${floor-32}) scale(.4)" fill="currentColor" fill-opacity=".45">${CAT}</g>
   <rect x="${x}" y="${y.toFixed(1)}" width="${d.w}" height="${d.h}" fill="var(--wall)" fill-opacity=".18" stroke="var(--brass)" stroke-width="${(fs/4).toFixed(2)}"/>
-  <text x="45" y="${(floor+fs*1.6).toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="middle" fill="currentColor" fill-opacity=".7">1,70 m</text>
+  <text x="32" y="${(floor+fs*1.6).toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="middle" fill="currentColor" fill-opacity=".7">chat · 32 cm</text>
   <text x="${(x+d.w/2).toFixed(1)}" y="${(floor+fs*1.6).toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="middle" fill="currentColor">${fmtN(d.h)} × ${fmtN(d.w)} cm</text></svg>`;
 }
 function wallHTML(items,wc){
   const ink=inkOn(wc);
-  const d=items.map(it=>{const dd=dimsOf(it),r=it.pw&&it.ph?it.pw/it.ph:.8;let h,w;if(dd){h=dd.h;w=dd.w}else if(r>=1){w=70;h=70/r}else{h=70;w=70*r}return {it,h,w,est:!dd,c:Math.max(150,h/2+15)}});
+  const d=items.map(it=>{const dd=dimsOf(it),dm=dispDims(it),r=dm.pw&&dm.ph?dm.pw/dm.ph:.8;let h,w;if(dd){h=dd.h;w=dd.w}else if(r>=1){w=70;h=70/r}else{h=70;w=70*r}return {it,h,w,est:!dd,c:Math.max(150,h/2+15)}});
   const top=Math.max(190,...d.map(x=>x.c+x.h/2));
   const avail=Math.max(230,Math.min(380,(innerHeight||800)*.36));
   const s=Math.min(2.6,avail/top);
-  const person=`<svg class="person" viewBox="0 0 50 170" width="${(50*s).toFixed(1)}" height="${(170*s).toFixed(1)}" fill="${ink}" aria-hidden="true">${PERSON}</svg>`;
+  const person=`<svg class="person" viewBox="0 0 60 80" width="${(24*s).toFixed(1)}" height="${(32*s).toFixed(1)}" fill="${ink}" aria-hidden="true">${CAT}</svg>`;
   const works=d.map(x=>{const wp=x.w*s,hp=x.h*s,u=Math.max(.16,Math.min(.85,Math.min(wp,hp)/300));const u2=u.toFixed(2);
     return `<button class="hang" data-o="${esc(x.it.id)}" style="margin-bottom:${((x.c-x.h/2)*s).toFixed(1)}px">${frameWrap(x.it,thumb(x.it).replace('<img ',`<img style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px" `)||`<div style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px;background:#2a2326"></div>`,'',`--u:${u2}`)}<span class="cartel2"><i>${esc(x.it.titre)}</i>${esc(x.it.artiste||'')}${x.est?'<span class="est">taille estimée</span>':''}</span></button>`}).join('');
   return `<div class="wallsc" style="--wc:${wc}"><div class="wallin">${person}${works}</div></div>`;
