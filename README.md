@@ -35,15 +35,6 @@ L'app choisit d'elle-même un modèle « Flash » gratuit (Gemini 3.5 Flash en p
 
 > La clé de signature est une clé de type « debug » (mot de passe `android`), commitée exprès pour que chaque build puisse mettre à jour le précédent. Elle convient à une app personnelle installée à la main, pas à une publication sur le Play Store.
 
-## Clé API Anthropic
-
-La reconnaissance utilise l'API Claude avec **votre propre clé** :
-
-1. Créez une clé sur <https://console.anthropic.com/settings/keys> (compte API, facturé à l'usage, distinct de l'abonnement claude.ai).
-2. Dans l'app : **Réglages** (roue dentée) → collez la clé → **Tester la clé**.
-
-La clé reste sur l'appareil et n'est envoyée qu'à `api.anthropic.com`. Dans les réglages, on choisit aussi le modèle (Sonnet 5.5 par défaut, Opus 5.5 plus précis, Haiku 5.5 plus économique) et on active ou non la vérification sur le web.
-
 ## Données et sauvegarde
 
 Les fiches et les photos sont stockées **uniquement sur l'appareil**. **Réglages → Exporter une sauvegarde** crée un fichier `.json` (photos incluses) à envoyer vers Drive ou ailleurs ; **Importer** le restaure, par exemple sur un nouveau téléphone.
