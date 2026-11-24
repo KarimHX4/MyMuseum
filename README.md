@@ -17,7 +17,7 @@ Vous photographiez une œuvre qui vous plaît : elle est identifiée, une **fich
 
 1. Ouvrez <https://aistudio.google.com/app/apikey> et connectez-vous avec un compte Google.
 2. Acceptez les conditions, puis **Create API key** (Google crée au besoin un projet par défaut).
-3. Copiez la clé (elle commence par `AIza…`).
+3. Copiez la clé. Depuis mi-2026, les nouvelles clés commencent par `AQ.` (les anciennes par `AIza…`) : les deux fonctionnent.
 4. Dans MyMuseum : **Réglages** (roue dentée) → collez la clé → **Vérifier la clé**.
 
 **Pour que cela reste à 0 €** : ne cliquez jamais sur « Set up billing » / « Upgrade » dans AI Studio et n'associez aucun moyen de paiement. Sans compte de facturation lié, le projet reste sur l'offre gratuite : quand le quota gratuit est atteint, l'API répond « quota dépassé » (l'app le signale et propose de continuer sans IA), elle ne facture pas. Vos quotas sont visibles sur <https://aistudio.google.com/rate-limit>.

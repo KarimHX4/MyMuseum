@@ -239,7 +239,7 @@ const b64=blob=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>re
 function gemError(status,body){
   let m='';try{m=JSON.parse(body).error.message||''}catch(x){m=String(body||'').slice(0,200)}
   const e=new Error();e.status=status;
-  if(/API key not valid|API_KEY_INVALID|API key expired/i.test(m))e.message='Clé Gemini refusée : vérifiez-la dans les réglages.';
+  if(status===401||/API key not valid|API_KEY_INVALID|API key expired|invalid authentication/i.test(m))e.message='Clé Gemini refusée : vérifiez-la dans les réglages.';
   else if(status===403)e.message=/location|region|country/i.test(m)?'L’API Gemini n’est pas disponible depuis ce pays.':'Accès refusé par Gemini ('+m.slice(0,120)+').';
   else if(status===429){e.quota=true;e.zero=/limit:\s*0\b/.test(m);e.message='Quota gratuit de Gemini atteint pour le moment (par minute ou par jour). Réessayez plus tard, ou cherchez l’œuvre sans IA.'}
   else if(status===404){e.skip=true;e.message='Modèle Gemini introuvable.'}
@@ -676,7 +676,7 @@ async function renderReglages(){
   root.innerHTML=`<div class="set"><div class="head"><h2>Réglages</h2></div>
   <div class="card"><h3>Reconnaissance par Gemini (gratuit, facultatif)</h3>
     <p>Sans clé, l’app fonctionne avec Wikidata, Wikipédia et la lecture du cartel. Avec une clé Gemini <b>gratuite</b>, elle reconnaît l’œuvre sur la photo et rédige une analyse. La clé se crée en deux minutes sur <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a>, sans carte bancaire. Ne cliquez pas sur « Set up billing » : tant qu’aucun moyen de paiement n’est lié, rien ne peut être facturé.</p>
-    <label class="f">Clé API Gemini<input id="sKey" type="password" autocomplete="off" placeholder="AIza…"></label>
+    <label class="f">Clé API Gemini<input id="sKey" type="password" autocomplete="off" placeholder="AQ.… (ou AIza…)"></label>
     <div class="row" style="margin:-4px 0 12px"><button class="btn small" id="sShow">Afficher</button><button class="btn small" id="sTest">Vérifier la clé</button>${cfg.gemKey?'<button class="btn small" id="sDel">Retirer la clé</button>':''}</div>
     <p class="note" id="sTestR"></p>
     <label class="f">Modèle<select id="sModel">${[...new Set([cfg.model,...(cfg.models||[]),...PREF].filter(Boolean))].map(v=>`<option value="${esc(v)}">${esc(v)}${PREF[0]===v?' (recommandé)':''}</option>`).join('')}</select></label>
