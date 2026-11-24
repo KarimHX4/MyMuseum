@@ -441,7 +441,7 @@ function renderLink(){
   const el=$('#link');if(!el)return;
   const m=S.match;
   if(S.linking){el.innerHTML='<span class="spin"></span>Recherche de la fiche Wikipédia…';return}
-  const cc=$('#cCons');if(cc&&!cc.value.trim()&&m&&m.home){cc.value=m.home;updDest()}
+  const cc=$('#cCons');if(cc&&!cc.value.trim()&&m&&m.home){cc.value=m.home;syncVu()}
   el.innerHTML=m?`${m.image?`<img src="${esc(commonsThumb(m.image,120))}" alt="" onerror="this.remove()">`:''}<div><small>Fiche Wikidata / Wikipédia</small><b>${esc(m.label)}</b><small>${esc([m.creator,m.year].filter(Boolean).join(', '))}</small></div><button class="btn small" id="chg">Changer</button>`
     :`<div><small>Aucune fiche Wikidata liée</small>${hasAI()?'La fiche sera rédigée par Gemini seul.':'La fiche ne contiendra que vos informations.'}</div><button class="btn small" id="chg">Chercher</button>`;
   $('#chg').onclick=()=>{S.cap='find';S.query=(S.ident&&S.ident.titre)||S.query;renderCap()};
@@ -500,10 +500,14 @@ function renderCap(){
     const set=(id,v)=>{$(id).value=v||''};
     set('#cTitre',d.titre);set('#cArt',d.artiste);set('#cDate',d.date);
     set('#cCons',homeName(co.institution)||(S.match&&S.match.home)||'');
-    set('#cVu',(rb?rb.vuA||rb.musee:vm)||lv.musee||co.institution);set('#cVille',(rb?rb.vuVille||rb.ville:$('#vVille').value.trim())||lv.ville||co.ville);
+    const keepVu=rb&&!rb.pending;
+    S.cf={visitM:(rb?rb.vuA||rb.musee:vm)||lv.musee||'',visitV:(rb?rb.vuVille||rb.ville:$('#vVille').value.trim())||lv.ville||'',homeM:homeName(co.institution),homeV:co.ville||'',vuDirty:keepVu,villeDirty:keepVu};
+    if(keepVu){set('#cVu',rb.vuA||rb.musee);set('#cVille',rb.vuVille||rb.ville)}else syncVu();
+    $('#cVu').addEventListener('input',()=>{S.cf.vuDirty=true});$('#cVille').addEventListener('input',()=>{S.cf.villeDirty=true});
+    $('#cCons').addEventListener('input',syncVu);
     set('#cExpo',vx||d.exposition);
     ['#cCons','#cVu'].forEach(id=>$(id).addEventListener('input',updDest));updDest();
-    side.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{const x=cand[+b.dataset.c];set('#cTitre',x.titre);set('#cArt',x.artiste);set('#cCons',homeName(x.institution));updDest();side.querySelectorAll('[data-c]').forEach(z=>z.setAttribute('aria-pressed',z===b));S.ident=Object.assign({},S.ident,{titre:x.titre,artiste:x.artiste});S.match=null;linkWikidata()});
+    side.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{const x=cand[+b.dataset.c];set('#cTitre',x.titre);set('#cArt',x.artiste);set('#cCons',homeName(x.institution));S.cf.homeM=homeName(x.institution);S.cf.homeV='';syncVu();side.querySelectorAll('[data-c]').forEach(z=>z.setAttribute('aria-pressed',z===b));S.ident=Object.assign({},S.ident,{titre:x.titre,artiste:x.artiste});S.match=null;linkWikidata()});
     $('#go').onclick=create;renderLink();
   }
   side.querySelectorAll('input.re').forEach(n=>n.addEventListener('change',e=>takeFile(e.target.files[0])));
@@ -520,6 +524,13 @@ function homeCityOf(s){return String(s||'').split(/\s*,\s*/).slice(1).find(x=>x&
 function homeFromWD(wd){if(!wd)return '';const c=[...String(wd.collection||'').split(', '),...String(wd.lieu||'').split(', ')].filter(Boolean);return cap1(c.find(x=>MUS_RE.test(x)&&!DEPT_RE.test(x))||String(wd.lieu||'').split(', ')[0]||c[0]||'')}
 function folderFor(it){const h=homeName(it.conservation),v=it.vuA||'';return cfg.rangement==='visite'?(v||h||'Lieu non précisé'):(h||v||'Lieu non précisé')}
 function folderCity(it,folder){return norm(folder)===norm(it.vuA)?it.vuVille||'':it.homeVille||homeCityOf(it.conservation)||''}
+function syncVu(){
+  const cf=S.cf,cons=$('#cCons'),vu=$('#cVu'),vi=$('#cVille');if(!cf||!cons||!vu)return;
+  const h=cons.value.trim();
+  if(!cf.vuDirty)vu.value=h||cf.visitM;
+  if(!cf.villeDirty)vi.value=!h||norm(h)===norm(cf.visitM)?cf.visitV:norm(h)===norm(cf.homeM)?cf.homeV:'';
+  updDest();
+}
 function updDest(){const e=$('#cDest');if(!e)return;const f={conservation:$('#cCons').value.trim(),vuA:$('#cVu').value.trim()};const d=folderFor(f);
   e.innerHTML=`Rangée dans le dossier <b>${esc(d)}</b>${!f.conservation&&cfg.rangement!=='visite'?' (ou dans le musée de l’œuvre, s’il est trouvé dans Wikidata)':''}.`}
 const enPret=f=>{const h=homeName(f.conservation);return !!(f.expo&&h&&norm(h)!==norm(f.vuA||f.musee))};
@@ -549,7 +560,8 @@ async function create(){
   const v=id=>$(id).value.trim();
   const id0=S.ident||{};
   const co0=id0.conservation||{};const f={titre:v('#cTitre')||'Œuvre sans titre',artiste:v('#cArt'),date:v('#cDate'),conservation:v('#cCons'),vuA:v('#cVu')||'Lieu non précisé',vuVille:v('#cVille'),homeVille:co0.ville&&norm(homeName(co0.institution))===norm(v('#cCons'))?co0.ville:'',expo:v('#cExpo'),technique:id0.technique||'',dimensions:id0.dimensions||'',mouvement:id0.mouvement||'',photo:S.photo.blob};
-  if(!S.replace)setVisit(f.vuA,f.vuVille,f.expo,vis.source==='gps'&&norm(f.vuA)===norm(vis.musee)?'gps':'manuel',norm(f.vuA)===norm(vis.musee)?vis.qid:undefined,norm(f.vuA)===norm(vis.musee)&&vis.lat!=null?{lat:vis.lat,lon:vis.lon}:null);
+  if(!S.replace&&S.cf&&!S.cf.vuDirty&&f.expo!==vis.expo){vis.expo=f.expo;saveVis();$('#vExpo').value=f.expo}
+  if(!S.replace&&S.cf&&S.cf.vuDirty)setVisit(f.vuA,f.vuVille,f.expo,vis.source==='gps'&&norm(f.vuA)===norm(vis.musee)?'gps':'manuel',norm(f.vuA)===norm(vis.musee)?vis.qid:undefined,norm(f.vuA)===norm(vis.musee)&&vis.lat!=null?{lat:vis.lat,lon:vis.lon}:null);
   const qid=S.match&&S.match.qid||'';
   S.cap='fiche';S.busy='';renderCap();
   const src=await buildSources(qid,f);
