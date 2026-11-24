@@ -15,11 +15,12 @@
 <body>
 <header class="wall"><div class="bar">
   <h1>MyMuseum</h1>
-  <nav>
-    <button data-v="capturer">Photographier</button>
-    <button data-v="musees">Musées</button>
-    <button data-v="oeuvres">Œuvres</button>
-    <button data-v="reglages" aria-label="Réglages" class="gear"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  <nav id="tabs">
+    <button data-v="capturer"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.6"/></svg><span>Photo</span></button>
+    <button data-v="musees"><svg viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5M4.5 10v8M9 10v8M15 10v8M19.5 10v8M3 20.5h18"/></svg><span>Musées</span></button>
+    <button data-v="oeuvres"><svg viewBox="0 0 24 24"><rect x="3.5" y="4" width="7" height="8.5" rx=".5"/><rect x="13.5" y="4" width="7" height="5.5" rx=".5"/><rect x="3.5" y="15" width="7" height="5" rx=".5"/><rect x="13.5" y="12" width="7" height="8" rx=".5"/></svg><span>Œuvres</span></button>
+    <button data-v="explorer"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></svg><span>Explorer</span></button>
+    <button data-v="reglages"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Réglages</span></button>
   </nav>
 </div></header>
 <main>
@@ -38,7 +39,7 @@
     </div>
   </div>
   <div class="stage">
-    <div class="frame"><div class="mat"><div class="canvas" id="canvas">
+    <div class="fr f-dore capfr" id="capFrame"><div class="fi"><div class="canvas" id="canvas">
       <div class="empty" id="empty">
         <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="6" y="16" width="52" height="38" rx="5"/><path d="M22 16l4-7h12l4 7"/><circle cx="32" cy="35" r="11"/><circle cx="32" cy="35" r="5"/></svg>
         <div class="serif" style="font-size:24px">Une œuvre vous plaît ?</div>
@@ -54,9 +55,22 @@
 </section>
 <section class="view" id="v-musees"></section>
 <section class="view" id="v-oeuvres"></section>
+<section class="view" id="v-explorer"></section>
 <section class="view" id="v-fiche"></section>
 <section class="view" id="v-reglages"></section>
 </main>
+
+<div class="overlay" id="viewer" hidden>
+  <div class="otop"><div class="seg" id="vSeg"></div><button class="obtn" id="vClose" aria-label="Fermer">Fermer</button></div>
+  <div class="vstage" id="vStage"><img id="vImg" alt=""></div>
+  <p class="ohint">Pincez ou double-touchez pour zoomer</p>
+</div>
+<div class="overlay" id="cropper" hidden>
+  <div class="otop"><span>Placez les 4 coins sur les bords de l’œuvre</span></div>
+  <div class="cstage" id="cStage"><canvas id="cCan"></canvas></div>
+  <div class="obar"><button class="obtn" id="cCancel">Annuler</button><button class="obtn" id="cFull">Toute l’image</button><button class="obtn main" id="cOk">Redresser</button></div>
+</div>
+
 <datalist id="dlMusees"></datalist><datalist id="dlExpos"></datalist>
 <input type="file" id="inBackup" accept="application/json,.json" hidden>
 <div class="toast" id="toast" hidden></div>

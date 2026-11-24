@@ -21,7 +21,7 @@ let tt;function toast(m,ms=4200){const t=$('#toast');t.textContent=m;t.hidden=fa
 async function getJSON(url,opt){let r;try{r=await fetch(url,opt)}catch(e){throw new Error('Pas de connexion internet (ou service injoignable).')}if(!r.ok)throw new Error('Erreur '+r.status+' de '+new URL(url).hostname);return r.json()}
 
 /* ---------- réglages ---------- */
-const cfg=Object.assign({gemKey:'',model:'',models:[],autoLoc:true},LS.get('mm.cfg2',null)||{autoLoc:LS.get('mm.cfg',{}).autoLoc!==false});
+const cfg=Object.assign({gemKey:'',model:'',models:[],autoLoc:true,frame:'auto'},LS.get('mm.cfg2',null)||{autoLoc:LS.get('mm.cfg',{}).autoLoc!==false});
 const saveCfg=()=>LS.set('mm.cfg2',cfg);
 const hasAI=()=>!!cfg.gemKey;
 
@@ -49,10 +49,11 @@ async function save(it){const i=S.items.findIndex(x=>x.id===it.id);if(i<0)S.item
 function upd(id,patch){const it=S.items.find(x=>x.id===id);if(!it)return;return save({...it,...patch})}
 
 /* ---------- visite en cours ---------- */
-const vis=Object.assign({musee:'',ville:'',expo:'',qid:'',ts:0,source:''},LS.get('mm.visite',{}));
+const vis=Object.assign({musee:'',ville:'',expo:'',qid:'',ts:0,source:'',lat:null,lon:null},LS.get('mm.visite',{}));
 const saveVis=()=>LS.set('mm.visite',vis);
-function setVisit(m,v,x,source,qid){
+function setVisit(m,v,x,source,qid,loc){
   const changed=norm(m)!==norm(vis.musee);
+  if(loc){vis.lat=loc.lat;vis.lon=loc.lon}else if(changed){vis.lat=null;vis.lon=null}
   vis.musee=m||'';vis.ville=v||'';if(x!==undefined)vis.expo=x;else if(changed)vis.expo='';
   if(qid!==undefined)vis.qid=qid||'';else if(changed)vis.qid='';
   vis.ts=Date.now();vis.source=source;saveVis();
@@ -60,7 +61,7 @@ function setVisit(m,v,x,source,qid){
 }
 for(const k of ['musee','ville','expo']){
   const el=$('#v'+k[0].toUpperCase()+k.slice(1));el.value=vis[k]||'';
-  el.addEventListener('change',()=>{const v=el.value.trim();if(k==='musee'&&norm(v)!==norm(vis.musee))vis.qid='';vis[k]=v;vis.ts=Date.now();vis.source='manuel';saveVis();
+  el.addEventListener('change',()=>{const v=el.value.trim();if(k==='musee'&&norm(v)!==norm(vis.musee)){vis.qid='';vis.lat=null;vis.lon=null}vis[k]=v;vis.ts=Date.now();vis.source='manuel';saveVis();
     if(k==='musee')$('#locChips').querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',norm(c.dataset.name)===norm(vis.musee)));});
 }
 
@@ -109,7 +110,7 @@ out tags;`;
     const key=e.type+e.id;
     const la=e.lat??(e.center&&e.center.lat),lo=e.lon??(e.center&&e.center.lon);
     if(part===0)inside.add(key);
-    if(!found.has(key))found.set(key,{key,name,city:t['addr:city']||'',qid:/^Q\d+$/.test(t.wikidata||'')?t.wikidata:'',kind:t.tourism||t.amenity,d:la!=null?dist(p.lat,p.lon,la,lo):9999});
+    if(!found.has(key))found.set(key,{key,name,city:t['addr:city']||'',qid:/^Q\d+$/.test(t.wikidata||'')?t.wikidata:'',kind:t.tourism||t.amenity,lat:la,lon:lo,d:la!=null?dist(p.lat,p.lon,la,lo):9999});
   }
   const out=[...found.values()].map(x=>({...x,inside:inside.has(x.key),city:x.city||city}));
   out.sort((a,b)=>(b.inside-a.inside)||((a.kind==='gallery')-(b.kind==='gallery'))||(a.d-b.d));
@@ -127,7 +128,7 @@ async function detect(auto){
     const sure=best&&(best.inside||best.d<120);
     const manualRecent=vis.source==='manuel'&&Date.now()-vis.ts<4*36e5;
     if(sure&&!(auto&&manualRecent)){
-      setVisit(best.name,best.city||city,undefined,'gps',best.qid);
+      setVisit(best.name,best.city||city,undefined,'gps',best.qid,best.lat!=null?{lat:best.lat,lon:best.lon}:null);
       st.innerHTML=`<span class="locok">Détecté : <b>${esc(best.name)}</b></span> ${best.inside?'(vous êtes à l’intérieur)':'(à '+Math.round(best.d)+' m)'}`;
     }else if(ls.length){
       st.textContent=auto&&manualRecent&&sure?`Vous semblez être à ${best.name}. Touchez-le pour changer de lieu.`:'Plusieurs lieux à proximité : touchez le vôtre, ou saisissez-le à la main.';
@@ -139,7 +140,7 @@ async function detect(auto){
 function renderChips(){
   const c=$('#locChips');
   c.innerHTML=nearby.map((x,i)=>`<button class="chip" data-i="${i}" data-name="${esc(x.name)}" aria-pressed="${norm(x.name)===norm(vis.musee)}">${esc(x.name)}<small>${x.inside?'ici':Math.round(x.d)+' m'}</small></button>`).join('');
-  c.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const x=nearby[+b.dataset.i];setVisit(x.name,x.city,undefined,'manuel',x.qid);renderChips();$('#locStatus').innerHTML=`<span class="locok">Lieu choisi : <b>${esc(x.name)}</b></span>`});
+  c.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const x=nearby[+b.dataset.i];setVisit(x.name,x.city,undefined,'manuel',x.qid,x.lat!=null?{lat:x.lat,lon:x.lon}:null);renderChips();$('#locStatus').innerHTML=`<span class="locok">Lieu choisi : <b>${esc(x.name)}</b></span>`});
 }
 $('#locBtn').onclick=()=>detect(false);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cfg.autoLoc&&Date.now()-lastDetect>20*6e4&&S.view==='capturer')detect(true)});
@@ -223,12 +224,12 @@ async function wdFull(qid){
   const L=p=>cl(e,p).map(v=>lbl(R[v.id])).filter(Boolean);
   const unit={Q174728:'cm',Q11573:'m',Q174789:'mm'};
   const dim=p=>{const v=cl(e,p)[0];if(!v)return null;const u=String(v.unit||'').split('/').pop();return {n:Math.round(parseFloat(v.amount)*10)/10,u:unit[u]||''}};
-  const h=dim('P2048'),w=dim('P2049');
+  const h=dim('P2048'),w=dim('P2049');const cm=d=>d?(d.u==='m'?d.n*100:d.u==='mm'?d.n/10:d.n):null;
   const creator=cl(e,'P170')[0];
   return {qid,label:lbl(e),desc:dsc(e),creators:L('P170'),date:wdTime(cl(e,'P571')[0]),materiaux:L('P186').join(', '),
     dimensions:h&&w?`${h.n} × ${w.n} ${h.u||w.u}`.trim():h?`hauteur ${h.n} ${h.u}`.trim():'',
     mouvement:L('P135').join(', '),genre:L('P136').join(', '),collection:L('P195').join(', '),lieu:L('P276').join(', '),
-    represente:L('P180'),inventaire:(cl(e,'P217')[0])||'',image:(cl(e,'P18')[0])||'',
+    hcm:cm(h),wcm:cm(w),represente:L('P180'),inventaire:(cl(e,'P217')[0])||'',image:(cl(e,'P18')[0])||'',
     wiki:pickWiki(e.sitelinks),creatorWiki:creator?pickWiki(R[creator.id]&&R[creator.id].sitelinks):null};
 }
 
@@ -418,6 +419,7 @@ async function readCartel(file){
 async function savePending(){
   const it={id:S.replace||newId(),createdAt:Date.now(),visite:today(),titre:'Œuvre à identifier',artiste:'',date:'',musee:$('#vMusee').value.trim()||'Lieu non précisé',ville:$('#vVille').value.trim(),expo:$('#vExpo').value.trim(),conservation:'',photo:S.photo.blob,pending:true,notes:'',favori:false,qa:[]};
   if(S.replace){const old=S.items.find(x=>x.id===S.replace);if(old)Object.assign(it,{createdAt:old.createdAt,visite:old.visite,musee:old.musee,ville:old.ville,expo:old.expo,notes:old.notes,favori:old.favori})}
+  Object.assign(it,await measure(it.photo),{loc:it.loc||locFor(it.musee)});
   await save(it);resetCap();renderCap();fillLists();toast('Photo gardée : vous la retrouverez dans « Œuvres », à identifier.');openFiche(it.id);
 }
 
@@ -433,12 +435,13 @@ function renderLink(){
 function renderCap(){
   const has=!!S.photo;
   $('#empty').hidden=has;
+  setFrameClass($('#capFrame'),cfg.frame==='auto'?'dore':cfg.frame);
   cv.querySelectorAll(':scope>img,.scan').forEach(n=>n.remove());
   if(has){const i=new Image();i.src=S.photo.url;i.alt='Votre photo';cv.appendChild(i)}
   if(busy()){const sc=document.createElement('div');sc.className='scan';cv.appendChild(sc)}
   const side=$('#side');
   const cartelBtn=`<label class="btn small"><input type="file" accept="image/*" capture="environment" class="cartelIn" hidden>${S.cartel?'Reprendre le cartel':'Photographier le cartel'}</label>`;
-  const again=`<div class="row" style="margin-top:14px"><label class="btn small"><input type="file" accept="image/*" capture="environment" class="re" hidden>Reprendre la photo</label>${has?'<button class="btn small" id="later">Identifier plus tard</button><button class="btn small" id="cancel">Annuler</button>':''}</div>`;
+  const again=`<div class="row" style="margin-top:14px">${has&&!busy()?'<button class="btn small" id="crop">Recadrer</button>':''}<label class="btn small"><input type="file" accept="image/*" capture="environment" class="re" hidden>Reprendre la photo</label>${has?'<button class="btn small" id="later">Identifier plus tard</button><button class="btn small" id="cancel">Annuler</button>':''}</div>`;
   if(S.cap==='idle'){
     side.innerHTML=`<h2>Photographiez, on s’occupe du reste</h2><p class="lead">${hasAI()?'Gemini reconnaît l’œuvre, la fiche est complétée avec Wikipédia et Wikidata,':'Retrouvez l’œuvre dans les collections du musée (Wikidata) ou lisez son cartel : la fiche est faite avec Wikipédia,'} puis rangée dans le dossier du musée, et de l’exposition si elle est temporaire.</p>
     ${hasAI()?'<label class="f">Un indice pour aider (facultatif)<input id="hint" placeholder="Texte du cartel, salle, nom de l’artiste…"></label>':'<p class="note">Astuce : ajoutez une clé Gemini gratuite dans les Réglages pour que l’app reconnaisse l’œuvre sur la photo.</p>'}`;
@@ -491,6 +494,7 @@ function renderCap(){
   side.querySelectorAll('input.cartelIn').forEach(n=>n.addEventListener('change',e=>{readCartel(e.target.files[0]);e.target.value=''}));
   const cn=$('#cancel');if(cn)cn.onclick=()=>{resetCap();renderCap()};
   const lt=$('#later');if(lt)lt.onclick=savePending;
+  const cr=$('#crop');if(cr)cr.onclick=async()=>{const b=await openCropper(S.photo.blob);if(b&&S.photo){URL.revokeObjectURL(S.photo.url);S.photo={blob:b,url:URL.createObjectURL(b)};renderCap()}};
 }
 const enPret=f=>!!(f.expo&&f.conservation&&norm(f.conservation).indexOf(norm(f.musee))<0);
 function step(t){S.busy=t;const e=$('#fstep');if(e)e.textContent=t}
@@ -526,7 +530,7 @@ async function create(){
   if(!src.wd&&!src.fiche&&qid){S.cap='confirm';renderCap();$('#cTitre').value=f.titre;$('#cArt').value=f.artiste;$('#cDate').value=f.date;$('#cCons').value=f.conservation;$('#cMus').value=f.musee;$('#cVille').value=f.ville;$('#cExpo').value=f.expo;
     toast('Impossible de récupérer la fiche (connexion ?). Réessayez, ou « Identifier plus tard ».',6000);return}
   const base=S.replace&&S.items.find(x=>x.id===S.replace);
-  const it={id:base?base.id:newId(),createdAt:base?base.createdAt:Date.now(),visite:base?base.visite:today(),notes:base?base.notes:'',favori:base?base.favori:false,qa:[],...f,qid,pending:false};
+  const it={id:base?base.id:newId(),createdAt:base?base.createdAt:Date.now(),visite:base?base.visite:today(),notes:base?base.notes:'',favori:base?base.favori:false,frame:base?base.frame||'':'',qa:[],...f,qid,pending:false,...(await measure(f.photo)),loc:base&&base.loc&&norm(base.musee)===norm(f.musee)?base.loc:locFor(f.musee)};
   applySources(it,src);
   await save(it);
   if(src.aiErr)toast('Analyse Gemini indisponible ('+src.aiErr+') : fiche créée avec Wikipédia. « Mettre à jour » la complétera plus tard.',7000);
@@ -542,7 +546,7 @@ function museums(){
   return [...m.values()].sort((a,b)=>b.items[0].createdAt-a.items[0].createdAt);
 }
 function ocard(it){
-  return `<button class="ocard" data-o="${esc(it.id)}"><div class="im">${thumb(it)}</div><h3>${esc(it.titre)}</h3><div class="meta">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>${it.pending?'<span class="tag l">À identifier</span> ':''}${it.favori?'<span class="tag">Coup de cœur</span> ':''}${it.enPret?'<span class="tag l">Prêt</span>':''}</button>`;
+  return `<button class="ocard" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci">${thumb(it)}</div>`)}<h3>${esc(it.titre)}</h3><div class="meta">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>${it.pending?'<span class="tag l">À identifier</span> ':''}${it.favori?'<span class="tag">Coup de cœur</span> ':''}${it.enPret?'<span class="tag l">Prêt</span>':''}</button>`;
 }
 function bindCards(root){root.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>openFiche(b.dataset.o))}
 
@@ -552,17 +556,26 @@ function renderMusees(){
   if(S.museum){
     const g=museums().find(x=>x.key===S.museum);
     if(!g){S.museum=null;return renderMusees()}
+    const wc=wallOf(g),tx=inkOn(wc),mode=LS.get('mm.mview','mur');
     const groups=new Map();
     for(const it of g.items){const k=it.expo?norm(it.expo):'';if(!groups.has(k))groups.set(k,{nom:it.expo,items:[],dates:new Set()});const x=groups.get(k);x.items.push(it);x.dates.add(it.visite)}
     const order=[...groups.entries()].sort((a,b)=>(a[0]===''?-1:b[0]===''?1:b[1].items[0].createdAt-a[1].items[0].createdAt));
-    root.innerHTML=`<button class="back" id="bk">← Tous les musées</button><div class="head"><h2>${esc(g.nom)}</h2><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}</div></div>`+
-    order.map(([k,x])=>`<div class="sect"><h3>${k?'Exposition « '+esc(x.nom)+' »':'Collections permanentes'}</h3><span class="meta">${plural(x.items.length,'œuvre')} · ${x.items.length>1?'vues':'vue'} le ${[...x.dates].filter(Boolean).sort().map(fdate).map(esc).join(', ')}</span></div><div class="ogrid">${x.items.map(ocard).join('')}</div>`).join('');
-    $('#bk').onclick=()=>{S.museum=null;renderMusees();scrollTo(0,0)};bindCards(root);return;
+    root.innerHTML=`<button class="back" id="bk">← Tous les musées</button>
+    <div class="mhead" style="background:${wc};--wtx:${tx}"><h2>${esc(g.nom)}</h2><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}</div></div>
+    <div class="row" style="justify-content:space-between;margin-bottom:16px"><div class="segm" id="mv"><button data-m="mur" aria-pressed="${mode==='mur'}">Mur</button><button data-m="liste" aria-pressed="${mode!=='mur'}">Liste</button></div>
+    <div class="swatches" id="wsw">${WALLS.map(([c,n])=>`<button data-c="${c}" title="Mur ${esc(n)}" aria-label="Mur ${esc(n)}" style="background:${c}" aria-pressed="${c===wc}"></button>`).join('')}</div></div>`+
+    order.map(([k,x])=>`<div class="room"><h3>${k?'Exposition « '+esc(x.nom)+' »':'Collections permanentes'}</h3><div class="meta">${plural(x.items.length,'œuvre')} · ${x.items.length>1?'vues':'vue'} le ${[...x.dates].filter(Boolean).sort().map(fdate).map(esc).join(', ')}</div>${mode==='mur'?wallHTML(x.items,wc):`<div class="ogrid">${x.items.map(ocard).join('')}</div>`}</div>`).join('')+
+    (mode==='mur'?'<p class="wallnote">Accroché à l’échelle : la silhouette mesure 1,70 m et chaque œuvre est centrée à 1,50 m du sol. Faites glisser le mur pour parcourir la salle ; touchez une œuvre pour ouvrir sa fiche.</p>':'');
+    $('#bk').onclick=()=>{S.museum=null;renderMusees();scrollTo(0,0)};bindCards(root);
+    root.querySelectorAll('#mv button').forEach(b=>b.onclick=()=>{LS.set('mm.mview',b.dataset.m);renderMusees()});
+    root.querySelectorAll('#wsw button').forEach(b=>b.onclick=()=>{const w=LS.get('mm.walls',{});w[g.key]=b.dataset.c;LS.set('mm.walls',w);renderMusees()});
+    if(mode==='mur')g.items.forEach(it=>{if(!it.pw&&it.photo)measure(it.photo).then(m=>{if(m.pw){upd(it.id,m);}})});
+    return;
   }
   const ms=museums();
   root.innerHTML=`<div class="head"><h2>Mes musées</h2>${S.items.length?'<button class="btn small" id="rnd">Revoir une œuvre au hasard</button>':''}</div>`+
   (ms.length?`<div class="mgrid">${ms.map(g=>{const ex=new Set(g.items.filter(i=>i.expo).map(i=>norm(i.expo))).size;const p=g.items.slice(0,3);
-    return `<button class="mcard" data-m="${esc(g.key)}"><div class="ph">${p[0]?thumb(p[0]):''}<div class="stackp">${p[1]?thumb(p[1]):''}${p[2]?thumb(p[2]):''}</div></div><div class="tx"><h3>${esc(g.nom)}</h3><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}${ex?' · '+plural(ex,'expo')+' temporaire'+(ex>1?'s':''):''}</div></div></button>`}).join('')}</div>`
+    return `<button class="mcard" data-m="${esc(g.key)}"><div class="ph" style="background:${wallOf(g)}">${p[0]?thumb(p[0]):''}<div class="stackp">${p[1]?thumb(p[1]):''}${p[2]?thumb(p[2]):''}</div></div><div class="tx"><h3>${esc(g.nom)}</h3><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}${ex?' · '+plural(ex,'expo')+' temporaire'+(ex>1?'s':''):''}</div></div></button>`}).join('')}</div>`
   :`<div class="emptyst"><h3>Aucun musée pour l’instant</h3>Photographiez votre première œuvre : son musée apparaîtra ici.</div>`);
   root.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{S.museum=b.dataset.m;renderMusees();scrollTo(0,0)});
   const r=$('#rnd');if(r)r.onclick=()=>openFiche(S.items[Math.floor(Math.random()*S.items.length)].id);
@@ -602,9 +615,10 @@ function renderFiche(){
   const noAI=!f.accroche&&!f.contexte;
   root.innerHTML=`<button class="back" id="bk">← ${esc(it.musee)}</button>
   ${it.pending?`<div class="pend"><b>Œuvre à identifier.</b> La photo et le lieu sont gardés ; identifiez-la quand vous aurez du réseau.<button class="btn main small" id="idn">Identifier maintenant</button></div>`:''}
-  <div class="fiche"><div class="left"><div class="frame"><div class="mat"><div class="canvas">${thumb(it)||'<div class="empty">Pas de photo</div>'}</div></div></div>
+  <div class="fiche"><div class="left">${frameWrap(it,thumb(it)||'<div class="nophoto">Pas de photo</div>','bigfr')}
+    <div class="meta" style="margin-top:12px">Cadre</div><div class="pick" id="fpick">${framePicker(it.frame||'',autoFrameFor(it))}</div>
     <div class="seen">Vue le <b>${esc(fdate(it.visite))}</b> à <b>${esc(it.musee)}</b>${it.ville?', '+esc(it.ville):''}${it.expo?`<br>Exposition temporaire « <b>${esc(it.expo)}</b> »${it.enPret&&it.conservation?' — prêt de '+esc(it.conservation):''}`:'<br>Collections permanentes'}</div>
-    <div class="toolbar"><button class="btn small fav" id="fv" aria-pressed="${!!it.favori}">${it.favori?'Coup de cœur':'Ajouter aux coups de cœur'}</button><button class="btn small" id="cp">Copier la fiche</button>${it.pending?'':'<button class="btn small" id="rg">Mettre à jour</button><button class="btn small" id="rid">Changer d’œuvre</button>'}<button class="btn small" id="dl">Supprimer</button></div>
+    <div class="toolbar"><button class="btn small fav" id="fv" aria-pressed="${!!it.favori}">${it.favori?'Coup de cœur':'Ajouter aux coups de cœur'}</button><button class="btn small" id="cp">Copier la fiche</button>${it.photo?'<button class="btn small" id="crp">Recadrer</button>':''}${it.pending?'':'<button class="btn small" id="rg">Mettre à jour</button><button class="btn small" id="rid">Changer d’œuvre</button>'}<button class="btn small" id="dl">Supprimer</button></div>
     <details class="edit"><summary>Corriger l’œuvre ou le lieu</summary>
       <label class="f">Titre<input id="eT"></label><div class="g2"><label class="f">Artiste<input id="eA"></label><label class="f">Date<input id="eD"></label></div>
       <div class="g2"><label class="f">Musée<input id="eM" list="dlMusees"></label><label class="f">Ville<input id="eV"></label></div>
@@ -615,6 +629,7 @@ function renderFiche(){
   </div>
   <div><h2>${esc(it.titre)}</h2><div class="who">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>
     ${spec.length?`<dl class="spec">${spec.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`:''}
+    ${dimsOf(it)?`<div class="blk scale"><h3>À l’échelle</h3>${scaleSVG(dimsOf(it))}</div>`:''}
     ${f.accroche?`<p class="lead2">${esc(f.accroche)}</p>`:intro?`<div class="lead2 wikiintro">${paras(intro.t)}</div>`:''}
     ${f.contexte?`<div class="blk"><h3>Contexte</h3>${paras(f.contexte)}</div>`:''}
     ${f.description?`<div class="blk"><h3>Ce que l’on voit</h3>${paras(f.description)}</div>`:''}
@@ -635,6 +650,9 @@ function renderFiche(){
   </div></div>`;
   const cur=()=>S.items.find(x=>x.id===it.id)||it;
   $('#bk').onclick=()=>{S.museum=norm(it.musee)||'_';show('musees')};
+  const big=root.querySelector('.bigfr');if(big&&it.photo)big.onclick=()=>{const c=cur();openViewer([{label:'Ma photo',src:photoURL(c)},...(c.wd&&c.wd.image?[{label:'Image de référence',src:commonsThumb(c.wd.image,2400)}]:[])])};
+  root.querySelectorAll('#fpick [data-f]').forEach(b=>b.onclick=async()=>{await upd(it.id,{frame:b.dataset.f});renderFiche()});
+  const crp=$('#crp');if(crp)crp.onclick=async()=>{const b=await openCropper(cur().photo);if(b){await upd(it.id,{photo:b,...(await measure(b))});renderFiche();toast('Photo redressée')}};
   $('#nt').value=it.notes||'';$('#nt').addEventListener('change',e=>{upd(it.id,{notes:e.target.value});toast('Notes enregistrées')});
   $('#fv').onclick=async()=>{await upd(it.id,{favori:!cur().favori});renderFiche()};
   $('#cp').onclick=()=>copyText(ficheText(cur()));
@@ -682,6 +700,10 @@ async function renderReglages(){
     <label class="f">Modèle<select id="sModel">${[...new Set([cfg.model,...(cfg.models||[]),...PREF].filter(Boolean))].map(v=>`<option value="${esc(v)}">${esc(v)}${PREF[0]===v?' (recommandé)':''}</option>`).join('')}</select></label>
     <p class="note">Si un modèle n’est pas gratuit ou que son quota du jour est épuisé, l’app passe automatiquement au suivant.</p>
   </div>
+  <div class="card"><h3>Cadre par défaut</h3>
+    <p>« Selon l’époque » choisit le cadre d’après la date et la technique de l’œuvre. Vous pouvez aussi changer le cadre œuvre par œuvre, dans sa fiche.</p>
+    <div class="pick" id="spick">${framePicker(cfg.frame==='auto'?'':cfg.frame,null,true)}</div>
+  </div>
   <div class="card"><h3>Localisation</h3>
     <label class="sw"><input type="checkbox" id="sLoc"><div><b>Détecter automatiquement le musée</b><span>À l’ouverture de l’app (et au retour après 20 min), votre position est comparée aux musées d’OpenStreetMap. Vous pouvez toujours saisir ou corriger le lieu à la main.</span></div></label>
   </div>
@@ -702,6 +724,7 @@ async function renderReglages(){
   const sd=$('#sDel');if(sd)sd.onclick=()=>{cfg.gemKey='';saveCfg();renderReglages();renderCap();toast('Clé retirée : l’app fonctionne sans IA.')};
   const m=$('#sModel');m.value=cfg.model||PREF[0];m.onchange=()=>{cfg.model=m.value;saveCfg()};
   const l=$('#sLoc');l.checked=cfg.autoLoc;l.onchange=()=>{cfg.autoLoc=l.checked;saveCfg();if(l.checked)toast('La détection se fera à la prochaine ouverture, ou avec « Me localiser ».')};
+  root.querySelectorAll('#spick [data-f]').forEach(b=>b.onclick=()=>{cfg.frame=b.dataset.f||'auto';saveCfg();renderReglages()});
   $('#sExp').onclick=exportBackup;
   $('#sImp').onclick=()=>$('#inBackup').click();
   const c=$('#sClr');let armed=false;c.onclick=async()=>{
@@ -739,18 +762,296 @@ $('#inBackup').addEventListener('change',async e=>{
   }catch(er){toast('Import impossible : '+er.message,6000)}
 });
 
+/* ---------- cadres ---------- */
+const FRAMES=[['dore','Doré'],['baroque','Baroque'],['noir','Baguette noire'],['bois','Bois clair'],['fin','Cadre fin'],['nu','Sans cadre']];
+const FR_KEYS=FRAMES.map(f=>f[0]);
+const frameLabel=k=>(FRAMES.find(f=>f[0]===k)||['',''])[1];
+function romanInt(r){const v={I:1,V:5,X:10,L:50,C:100,D:500,M:1000};let n=0;for(let i=0;i<r.length;i++){const a=v[r[i]],b=v[r[i+1]]||0;n+=a<b?-a:a}return n}
+function yearOf(it){
+  const s=String((it.wd&&it.wd.date)||it.date||'');if(!s)return null;
+  const bc=/av\.?\s*J\.?\s*-?\s*C|\bBC\b|avant notre [èe]re|av\. n\. [èe]/i.test(s);
+  let m=s.match(/(?:^|[^\d])(\d{3,4})(?!\d)/);if(m)return bc?-+m[1]:+m[1];
+  m=s.match(/\b([IVXLC]+)(?:e|er|ème)\s+si[eè]cle/);if(m){const c=romanInt(m[1]);if(c)return bc?-(c*100-50):(c-1)*100+50}
+  m=s.match(/\b(\d{1,2})(?:e|er|ème)\s*si[eè]cle/i);if(m){const c=+m[1];return bc?-(c*100-50):(c-1)*100+50}
+  m=s.match(/\b(\d{1,3})\b/);if(m&&bc)return -+m[1];
+  return null;
+}
+function autoFrameFor(it){
+  const t=norm([it.technique,it.mouvement,it.wd&&it.wd.genre,it.wd&&it.wd.desc,it.wd&&it.wd.materiaux].join(' '));
+  if(/sculpt|statue|buste|marbre|bronze|ceramique|terre cuite|porcelaine|vase|bijou|mobilier|objet|relief|installation|video|tapisserie|armure/.test(t))return 'nu';
+  if(/photograph|dessin|estampe|gravure|aquarelle|pastel|fusain|lithograph|sanguine|papier|affiche|enluminure/.test(t))return 'fin';
+  const y=yearOf(it);if(y==null)return 'dore';
+  if(y<1250)return 'nu';if(y<1600)return 'dore';if(y<1790)return 'baroque';if(y<1860)return 'dore';if(y<1920)return 'bois';if(y<1960)return 'fin';return 'noir';
+}
+const defaultFrameFor=it=>FR_KEYS.includes(cfg.frame)?cfg.frame:autoFrameFor(it);
+const frameOf=it=>FR_KEYS.includes(it.frame)?it.frame:defaultFrameFor(it);
+function setFrameClass(el,f){if(el)el.className=el.className.replace(/\bf-\w+/g,'').replace(/\s+/g,' ').trim()+' f-'+f}
+function frameWrap(it,inner,cls='',style=''){return `<div class="fr f-${frameOf(it)} ${cls}"${style?` style="${style}"`:''}><div class="fi">${inner}</div></div>`}
+function framePicker(cur,defF,isSettings){
+  const def=isSettings?'dore':FR_KEYS.includes(cfg.frame)?cfg.frame:defF;
+  const first=isSettings?'Selon l’époque':(cfg.frame==='auto'?'Selon l’époque':'Par défaut')+' · '+frameLabel(def);
+  return [['',first],...FRAMES].map(([k,l])=>`<button data-f="${k}" aria-pressed="${cur===k}"><span class="fr mini f-${k||def}"><span class="fi"><i></i></span></span>${esc(l)}</button>`).join('');
+}
+
+/* ---------- murs, dimensions, échelle ---------- */
+const WALLS=[['#5c1825','Bordeaux'],['#8e2f24','Rouge pompéien'],['#56634f','Vert-de-gris'],['#1f2c45','Bleu nuit'],['#4b4f55','Ardoise'],['#b48448','Ocre'],['#ecebe6','Blanc galerie']];
+function wallOf(g){
+  const w=LS.get('mm.walls',{})[g.key];if(w&&/^#[0-9a-f]{6}$/i.test(w))return w;
+  const n=norm(g.nom);
+  if(/orangerie|pompidou|moderne|contemporain|tate|moma|fondation|palais de tokyo|guggenheim|beaubourg|mac /.test(n))return '#ecebe6';
+  if(/orsay|rodin|marmottan|jacquemart/.test(n))return '#56634f';
+  return '#5c1825';
+}
+function inkOn(hex){const n=parseInt(hex.slice(1),16);return (0.299*(n>>16&255)+0.587*(n>>8&255)+0.114*(n&255))>160?'#1b1719':'#f7ede7'}
+function dimsOf(it){
+  const w=it.wd;if(w&&w.hcm>0&&w.wcm>0)return {h:w.hcm,w:w.wcm};
+  const m=String(it.dimensions||'').replace(/(\d),(\d)/g,'$1.$2').match(/(\d+(?:\.\d+)?)\s*[×x]\s*(\d+(?:\.\d+)?)\s*(cm|mm|m)\b/i);
+  if(!m)return null;const u=m[3].toLowerCase(),k=u==='m'?100:u==='mm'?.1:1;const h=+m[1]*k,ww=+m[2]*k;
+  return h>0&&ww>0&&h<5000&&ww<5000?{h,w:ww}:null;
+}
+async function measure(b){if(!b)return {};try{const bm=await createImageBitmap(b);const r={pw:bm.width,ph:bm.height};if(bm.close)bm.close();return r}catch(e){return {}}}
+function locFor(name){
+  if(norm(name)===norm(vis.musee)&&vis.lat!=null)return {lat:vis.lat,lon:vis.lon};
+  const c=LS.get('mm.coords',{})[norm(name)||'_'];return c||null;
+}
+const PERSON='<circle cx="25" cy="11" r="10"/><path d="M13 25h24c4 0 7 3 7 7v45c0 3-2 5-5 5h-3v78c0 3-2 5-5 5h-3c-3 0-5-2-5-5v-58h-2v58c0 3-2 5-5 5h-3c-3 0-5-2-5-5V82h-3c-3 0-5-2-5-5V32c0-4 3-7 7-7z"/>';
+const fmtN=n=>(Math.round(n*10)/10).toLocaleString('fr-FR');
+function scaleSVG(d){
+  const c=Math.max(150,d.h/2+15),top=Math.max(170,c+d.h/2);
+  const W=20+50+40+d.w+20,fs=Math.max(top,W)/20,H=top+20+fs*2.2,floor=top+15;
+  const x=20+50+40,y=floor-(c+d.h/2);
+  return `<svg viewBox="0 0 ${W.toFixed(1)} ${H.toFixed(1)}" role="img" aria-label="Taille de l’œuvre à côté d’une personne de 1,70 m">
+  <line x1="0" y1="${floor}" x2="${W}" y2="${floor}" stroke="currentColor" stroke-opacity=".35" stroke-width="${(fs/7).toFixed(2)}"/>
+  <g transform="translate(20 ${floor-170})" fill="currentColor" fill-opacity=".4">${PERSON}</g>
+  <rect x="${x}" y="${y.toFixed(1)}" width="${d.w}" height="${d.h}" fill="var(--wall)" fill-opacity=".18" stroke="var(--brass)" stroke-width="${(fs/4).toFixed(2)}"/>
+  <text x="45" y="${(floor+fs*1.6).toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="middle" fill="currentColor" fill-opacity=".7">1,70 m</text>
+  <text x="${(x+d.w/2).toFixed(1)}" y="${(floor+fs*1.6).toFixed(1)}" font-size="${fs.toFixed(1)}" text-anchor="middle" fill="currentColor">${fmtN(d.h)} × ${fmtN(d.w)} cm</text></svg>`;
+}
+function wallHTML(items,wc){
+  const ink=inkOn(wc);
+  const d=items.map(it=>{const dd=dimsOf(it),r=it.pw&&it.ph?it.pw/it.ph:.8;let h,w;if(dd){h=dd.h;w=dd.w}else if(r>=1){w=70;h=70/r}else{h=70;w=70*r}return {it,h,w,est:!dd,c:Math.max(150,h/2+15)}});
+  const top=Math.max(190,...d.map(x=>x.c+x.h/2));
+  const avail=Math.max(230,Math.min(380,(innerHeight||800)*.36));
+  const s=Math.min(2.6,avail/top);
+  const person=`<svg class="person" viewBox="0 0 50 170" width="${(50*s).toFixed(1)}" height="${(170*s).toFixed(1)}" fill="${ink}" aria-hidden="true">${PERSON}</svg>`;
+  const works=d.map(x=>{const wp=x.w*s,hp=x.h*s,u=Math.max(.16,Math.min(.85,Math.min(wp,hp)/300));const u2=u.toFixed(2);
+    return `<button class="hang" data-o="${esc(x.it.id)}" style="margin-bottom:${((x.c-x.h/2)*s).toFixed(1)}px">${frameWrap(x.it,thumb(x.it).replace('<img ',`<img style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px" `)||`<div style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px;background:#2a2326"></div>`,'',`--u:${u2}`)}<span class="cartel2"><i>${esc(x.it.titre)}</i>${esc(x.it.artiste||'')}${x.est?'<span class="est">taille estimée</span>':''}</span></button>`}).join('');
+  return `<div class="wallsc" style="--wc:${wc}"><div class="wallin">${person}${works}</div></div>`;
+}
+
+/* ---------- surcouches : historique (bouton retour d'Android) ---------- */
+function openOverlay(el){el.hidden=false;document.body.style.overflow='hidden';try{history.pushState({ov:el.id},'')}catch(e){}}
+function closeOverlays(){
+  const v=$('#viewer'),c=$('#cropper');let any=false;
+  if(!v.hidden){v.hidden=true;$('#vImg').removeAttribute('src');any=true}
+  if(!c.hidden){c.hidden=true;any=true;if(C.url)URL.revokeObjectURL(C.url);const r=C.res;const out=C.out;C.res=null;C.img=null;C.out=null;if(r)r(out)}
+  if(any)document.body.style.overflow='';
+}
+const backOrClose=()=>{if(history.state&&history.state.ov)history.back();else closeOverlays()};
+addEventListener('popstate',closeOverlays);
+addEventListener('keydown',e=>{if(e.key==='Escape'&&(!$('#viewer').hidden||!$('#cropper').hidden))backOrClose()});
+
+/* ---------- visionneuse plein écran (zoom) ---------- */
+const VW={s:1,x:0,y:0,w:0,h:0,pts:new Map(),tap:0,moved:false,downT:0};
+function openViewer(srcs){
+  srcs=srcs.filter(x=>x&&x.src);if(!srcs.length)return;
+  const seg=$('#vSeg');
+  seg.innerHTML=srcs.length>1?srcs.map((x,i)=>`<button data-i="${i}" aria-pressed="${i===0}">${esc(x.label)}</button>`).join(''):'';
+  seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{seg.querySelectorAll('button').forEach(z=>z.setAttribute('aria-pressed',z===b));vLoad(srcs[+b.dataset.i].src)});
+  openOverlay($('#viewer'));vLoad(srcs[0].src);
+}
+function vLoad(src){const img=$('#vImg');img.style.visibility='hidden';img.onload=vFit;img.onerror=()=>toast('Image indisponible (connexion ?)');img.src=src}
+function vFit(){
+  const img=$('#vImg'),st=$('#vStage').getBoundingClientRect();if(!img.naturalWidth)return;
+  const k=Math.min(st.width/img.naturalWidth,st.height/img.naturalHeight);
+  VW.w=img.naturalWidth*k;VW.h=img.naturalHeight*k;
+  Object.assign(img.style,{width:VW.w+'px',height:VW.h+'px',position:'absolute',left:'0',top:'0',maxWidth:'none',maxHeight:'none'});
+  VW.s=1;vApply();img.style.visibility='visible';
+}
+function vApply(){
+  const st=$('#vStage').getBoundingClientRect(),W=VW.w*VW.s,H=VW.h*VW.s;
+  VW.x=W<=st.width?(st.width-W)/2:Math.min(0,Math.max(st.width-W,VW.x));
+  VW.y=H<=st.height?(st.height-H)/2:Math.min(0,Math.max(st.height-H,VW.y));
+  $('#vImg').style.transform=`translate(${VW.x}px,${VW.y}px) scale(${VW.s})`;
+}
+function vZoom(px,py,k){const ns=Math.min(6,Math.max(1,VW.s*k));k=ns/VW.s;VW.x=px-(px-VW.x)*k;VW.y=py-(py-VW.y)*k;VW.s=ns;vApply()}
+{
+  const st=$('#vStage');
+  st.addEventListener('pointerdown',e=>{try{st.setPointerCapture(e.pointerId)}catch(x){}VW.pts.set(e.pointerId,{x:e.clientX,y:e.clientY});VW.moved=false;VW.downT=Date.now()});
+  st.addEventListener('pointermove',e=>{
+    if(!VW.pts.has(e.pointerId))return;const r=st.getBoundingClientRect();
+    const prev=[...VW.pts.values()];const before=prev.length===2?{d:Math.hypot(prev[0].x-prev[1].x,prev[0].y-prev[1].y),mx:(prev[0].x+prev[1].x)/2,my:(prev[0].y+prev[1].y)/2}:null;
+    const p=VW.pts.get(e.pointerId),dx=e.clientX-p.x,dy=e.clientY-p.y;if(Math.abs(dx)+Math.abs(dy)>3)VW.moved=true;
+    VW.pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(VW.pts.size===2&&before&&before.d>0){const n=[...VW.pts.values()],d=Math.hypot(n[0].x-n[1].x,n[0].y-n[1].y),mx=(n[0].x+n[1].x)/2,my=(n[0].y+n[1].y)/2;VW.x+=mx-before.mx;VW.y+=my-before.my;vZoom(mx-r.left,my-r.top,d/before.d)}
+    else if(VW.pts.size===1&&VW.s>1){VW.x+=dx;VW.y+=dy;vApply()}
+  });
+  const up=e=>{
+    if(!VW.pts.has(e.pointerId))return;VW.pts.delete(e.pointerId);
+    if(!VW.moved&&VW.pts.size===0&&Date.now()-VW.downT<300){const now=Date.now();
+      if(now-VW.tap<320){const r=st.getBoundingClientRect();if(VW.s>1.05){VW.s=1;vApply()}else vZoom(e.clientX-r.left,e.clientY-r.top,2.5);VW.tap=0}else VW.tap=now}
+  };
+  st.addEventListener('pointerup',up);st.addEventListener('pointercancel',up);
+  st.addEventListener('wheel',e=>{e.preventDefault();const r=st.getBoundingClientRect();vZoom(e.clientX-r.left,e.clientY-r.top,Math.exp(-e.deltaY*.0015))},{passive:false});
+  $('#vClose').onclick=backOrClose;
+  addEventListener('resize',()=>{if(!$('#viewer').hidden)vFit();if(!$('#cropper').hidden)cLayout()});
+}
+
+/* ---------- recadrage en perspective ---------- */
+const C={img:null,url:'',q:null,drag:-1,res:null,out:null,ds:1,k:1};
+function openCropper(blob){
+  return new Promise(async res=>{
+    if(!blob)return res(null);
+    const url=URL.createObjectURL(blob);
+    const img=await new Promise(ok=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=url});
+    if(!img){URL.revokeObjectURL(url);return res(null)}
+    const W=img.naturalWidth,H=img.naturalHeight,m=.06;
+    Object.assign(C,{img,url,res,out:null,drag:-1,q:[[W*m,H*m],[W*(1-m),H*m],[W*(1-m),H*(1-m)],[W*m,H*(1-m)]]});
+    $('#cOk').disabled=false;$('#cOk').textContent='Redresser';
+    openOverlay($('#cropper'));requestAnimationFrame(cLayout);
+  });
+}
+function cLayout(){
+  const img=C.img;if(!img)return;const r=$('#cStage').getBoundingClientRect(),can=$('#cCan'),dpr=devicePixelRatio||1;
+  const ds=Math.max(.01,Math.min((r.width-28)/img.naturalWidth,(r.height-28)/img.naturalHeight));C.ds=ds;C.k=ds*dpr;
+  can.style.width=img.naturalWidth*ds+'px';can.style.height=img.naturalHeight*ds+'px';
+  can.width=Math.round(img.naturalWidth*ds*dpr);can.height=Math.round(img.naturalHeight*ds*dpr);cDraw();
+}
+function cDraw(){
+  const can=$('#cCan'),x=can.getContext('2d'),k=C.k,q=C.q,dpr=devicePixelRatio||1;if(!C.img)return;
+  x.clearRect(0,0,can.width,can.height);x.drawImage(C.img,0,0,can.width,can.height);
+  x.beginPath();x.rect(0,0,can.width,can.height);x.moveTo(q[0][0]*k,q[0][1]*k);for(let i=1;i<4;i++)x.lineTo(q[i][0]*k,q[i][1]*k);x.closePath();x.fillStyle='rgba(0,0,0,.55)';x.fill('evenodd');
+  x.lineWidth=2*dpr;x.strokeStyle='#e8c77e';x.beginPath();q.forEach((p,i)=>i?x.lineTo(p[0]*k,p[1]*k):x.moveTo(p[0]*k,p[1]*k));x.closePath();x.stroke();
+  q.forEach((p,i)=>{x.beginPath();x.arc(p[0]*k,p[1]*k,13*dpr,0,7);x.fillStyle=i===C.drag?'#e8c77e':'rgba(232,199,126,.35)';x.fill();x.stroke()});
+  if(C.drag>=0){
+    const p=q[C.drag],L=58*dpr,Z=3,lx=p[0]*k<can.width/2?can.width-L-8*dpr:L+8*dpr,ly=p[1]*k<can.height/2?can.height-L-8*dpr:L+8*dpr,sz=2*L/(k*Z);
+    x.save();x.beginPath();x.arc(lx,ly,L,0,7);x.clip();x.fillStyle='#000';x.fillRect(lx-L,ly-L,2*L,2*L);
+    x.drawImage(C.img,p[0]-sz/2,p[1]-sz/2,sz,sz,lx-L,ly-L,2*L,2*L);
+    x.strokeStyle='#e8c77e';x.lineWidth=1.5*dpr;x.beginPath();x.moveTo(lx-14*dpr,ly);x.lineTo(lx+14*dpr,ly);x.moveTo(lx,ly-14*dpr);x.lineTo(lx,ly+14*dpr);x.stroke();x.restore();
+    x.beginPath();x.arc(lx,ly,L,0,7);x.lineWidth=3*dpr;x.strokeStyle='#e8c77e';x.stroke();
+  }
+}
+{
+  const can=$('#cCan');
+  const pos=e=>{const r=can.getBoundingClientRect();return [(e.clientX-r.left)/C.ds,(e.clientY-r.top)/C.ds]};
+  can.addEventListener('pointerdown',e=>{if(!C.img)return;const [px,py]=pos(e);let best=-1,bd=1e9;C.q.forEach((p,i)=>{const d=Math.hypot(p[0]-px,p[1]-py)*C.ds;if(d<bd){bd=d;best=i}});
+    if(bd<56){C.drag=best;C.off=[C.q[best][0]-px,C.q[best][1]-py];try{can.setPointerCapture(e.pointerId)}catch(x){}cDraw()}});
+  can.addEventListener('pointermove',e=>{if(C.drag<0)return;const [px,py]=pos(e);C.q[C.drag]=[Math.max(0,Math.min(C.img.naturalWidth,px+C.off[0])),Math.max(0,Math.min(C.img.naturalHeight,py+C.off[1]))];cDraw()});
+  const up=()=>{if(C.drag>=0){C.drag=-1;cDraw()}};can.addEventListener('pointerup',up);can.addEventListener('pointercancel',up);
+  $('#cCancel').onclick=()=>{C.out=null;backOrClose()};
+  $('#cFull').onclick=()=>{const W=C.img.naturalWidth,H=C.img.naturalHeight;C.q=[[0,0],[W,0],[W,H],[0,H]];cDraw()};
+  $('#cOk').onclick=async()=>{const b=$('#cOk');b.disabled=true;b.textContent='Redressement…';await new Promise(r=>setTimeout(r,30));try{C.out=await warp()}catch(e){C.out=null;toast('Recadrage impossible : '+e.message)}backOrClose()};
+}
+function solve8(A,b){
+  const n=b.length;
+  for(let i=0;i<n;i++){let p=i;for(let r=i+1;r<n;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;[A[i],A[p]]=[A[p],A[i]];[b[i],b[p]]=[b[p],b[i]];
+    if(Math.abs(A[i][i])<1e-12)throw new Error('coins alignés');
+    for(let r=i+1;r<n;r++){const f=A[r][i]/A[i][i];for(let c=i;c<n;c++)A[r][c]-=f*A[i][c];b[r]-=f*b[i]}}
+  const x=new Array(n);for(let i=n-1;i>=0;i--){let t=b[i];for(let c=i+1;c<n;c++)t-=A[i][c]*x[c];x[i]=t/A[i][i]}return x;
+}
+function homog(from,to){const A=[],b=[];for(let i=0;i<4;i++){const [x,y]=from[i],[X,Y]=to[i];A.push([x,y,1,0,0,0,-X*x,-X*y]);b.push(X);A.push([0,0,0,x,y,1,-Y*x,-Y*y]);b.push(Y)}return solve8(A,b)}
+async function warp(){
+  const img=C.img,q=C.q,d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  let W=(d(q[0],q[1])+d(q[3],q[2]))/2,H=(d(q[0],q[3])+d(q[1],q[2]))/2;const k=Math.min(1,1600/Math.max(W,H));
+  W=Math.max(16,Math.round(W*k));H=Math.max(16,Math.round(H*k));
+  const sc=document.createElement('canvas');sc.width=img.naturalWidth;sc.height=img.naturalHeight;const sx=sc.getContext('2d');sx.drawImage(img,0,0);
+  const SW=sc.width,SH=sc.height,src=sx.getImageData(0,0,SW,SH).data;
+  const h=homog([[0,0],[W,0],[W,H],[0,H]],q);
+  const oc=document.createElement('canvas');oc.width=W;oc.height=H;const ox=oc.getContext('2d'),out=ox.createImageData(W,H),o=out.data;
+  for(let v=0;v<H;v++)for(let u=0;u<W;u++){
+    const den=h[6]*u+h[7]*v+1;let x=(h[0]*u+h[1]*v+h[2])/den,y=(h[3]*u+h[4]*v+h[5])/den;
+    x=x<0?0:x>SW-1.001?SW-1.001:x;y=y<0?0:y>SH-1.001?SH-1.001:y;
+    const x0=x|0,y0=y|0,fx=x-x0,fy=y-y0,i00=(y0*SW+x0)*4,i01=i00+SW*4,oi=(v*W+u)*4;
+    for(let c=0;c<3;c++)o[oi+c]=(src[i00+c]*(1-fx)+src[i00+4+c]*fx)*(1-fy)+(src[i01+c]*(1-fx)+src[i01+4+c]*fx)*fy;
+    o[oi+3]=255;
+  }
+  ox.putImageData(out,0,0);return await new Promise(r=>oc.toBlob(r,'image/jpeg',.88));
+}
+
+/* ---------- explorer : carte, frise, statistiques ---------- */
+let leafP=null,mapObj=null;
+function loadLeaflet(){
+  if(window.L&&window.L.map)return Promise.resolve(window.L);
+  return leafP||(leafP=new Promise((res,rej)=>{
+    const l=document.createElement('link');l.rel='stylesheet';l.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';document.head.appendChild(l);
+    const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';s.onload=()=>res(window.L);s.onerror=()=>{leafP=null;s.remove();rej(new Error('Carte indisponible : une connexion internet est nécessaire.'))};document.head.appendChild(s);
+  }));
+}
+async function museumCoords(g){
+  const it=g.items.find(i=>i.loc&&i.loc.lat!=null);if(it)return it.loc;
+  const cache=LS.get('mm.coords',{});if(cache[g.key])return cache[g.key];
+  try{const q=await museumQid(g.nom);if(!q)return null;const e=(await wdEntities([q],'claims'))[q];const c=cl(e,'P625')[0];
+    if(c){const v={lat:c.latitude,lon:c.longitude};cache[g.key]=v;LS.set('mm.coords',cache);return v}}catch(e){}
+  return null;
+}
+function centuryOf(y){return y<=0?-(Math.ceil(-y/100)||1):Math.ceil(y/100)||1}
+function centuryLabel(c){const a=Math.abs(c);return roman(a)+(a===1?'er':'e')+' siècle'+(c<0?' av. J.-C.':'')}
+function renderExplorer(){
+  const root=$('#v-explorer');const tab=LS.get('mm.exp','carte');
+  if(mapObj){try{mapObj.remove()}catch(e){}mapObj=null}
+  root.innerHTML=`<div class="head"><h2>Explorer</h2><div class="segm" id="exs">${[['carte','Carte'],['frise','Frise'],['stats','Statistiques']].map(([k,l])=>`<button data-t="${k}" aria-pressed="${tab===k}">${l}</button>`).join('')}</div></div><div id="exb"></div>`;
+  root.querySelectorAll('#exs button').forEach(b=>b.onclick=()=>{LS.set('mm.exp',b.dataset.t);renderExplorer()});
+  if(!S.items.length){$('#exb').innerHTML='<div class="emptyst"><h3>Rien à explorer pour l’instant</h3>Vos musées, votre frise et vos statistiques apparaîtront ici dès la première œuvre.</div>';return}
+  if(tab==='frise')renderFrise();else if(tab==='stats')renderStats();else renderMap();
+}
+async function renderMap(){
+  const b=$('#exb');b.innerHTML='<div id="map"></div><p class="note" id="mapnote"><span class="spin"></span>Chargement de la carte…</p>';
+  let L;try{L=await loadLeaflet()}catch(e){const n=$('#mapnote');if(n)n.textContent=e.message;return}
+  const el=$('#map');if(!el||S.view!=='explorer')return;
+  mapObj=L.map(el).setView([46.6,2.4],5);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(mapObj);
+  setTimeout(()=>mapObj&&mapObj.invalidateSize(),120);
+  const map=mapObj,pts=[],miss=[];
+  for(const g of museums()){
+    const c=await museumCoords(g);if(mapObj!==map)return;
+    if(!c){miss.push(g.nom);continue}
+    const box=document.createElement('div'),t=document.createElement('b'),p=document.createElement('div'),bt=document.createElement('button');
+    t.textContent=g.nom;p.textContent=plural(g.items.length,'œuvre')+(g.ville?' · '+g.ville:'');bt.textContent='Voir le musée';bt.onclick=()=>{S.museum=g.key;show('musees');scrollTo(0,0)};box.append(t,p,bt);
+    L.circleMarker([c.lat,c.lon],{radius:Math.min(16,7+Math.sqrt(g.items.length)*2),color:'#fff',weight:2,fillColor:'#5c1825',fillOpacity:.92}).addTo(map).bindPopup(box);
+    pts.push([c.lat,c.lon]);
+  }
+  if(pts.length===1)map.setView(pts[0],14);else if(pts.length)map.fitBounds(pts,{padding:[40,40],maxZoom:14});
+  const n=$('#mapnote');if(n)n.textContent=(pts.length?plural(pts.length,'musée')+' sur la carte.':'Aucun musée localisé.')+(miss.length?' Position introuvable pour : '+miss.join(', ')+'.':'');
+}
+function tlRow(it){return `<button class="tlrow" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci">${thumb(it)}</div>`)}<span><b>${esc(it.titre)}</b><small>${esc([it.artiste,it.musee].filter(Boolean).join(' · '))}</small>${it.date||(it.wd&&it.wd.date)?`<small class="yr">${esc(it.date||it.wd.date)}</small>`:''}</span></button>`}
+function renderFrise(){
+  const rows=S.items.map(it=>({it,y:yearOf(it)}));
+  const dated=rows.filter(r=>r.y!=null).sort((a,b)=>a.y-b.y),und=rows.filter(r=>r.y==null);
+  let html='<div class="tl">',cur=null;
+  for(const r of dated){const c=centuryOf(r.y);if(c!==cur){html+=`<h3>${centuryLabel(c)}</h3>`;cur=c}html+=tlRow(r.it)}
+  if(und.length)html+='<h3>Sans date</h3>'+und.map(r=>tlRow(r.it)).join('');
+  $('#exb').innerHTML=html+'</div>';bindCards($('#exb'));
+}
+function tally(arr){const m=new Map();for(const k of arr){if(!k)continue;m.set(k,(m.get(k)||0)+1)}return [...m.entries()].sort((a,b)=>b[1]-a[1])}
+function bars(list,max=8){const top=list.slice(0,max),mx=top[0]?top[0][1]:1;return `<div class="bars">${top.map(([k,n])=>`<div class="brow"><span class="bl" title="${esc(k)}">${esc(k)}</span><span class="bt"><i style="width:${Math.max(4,Math.round(n/mx*100))}%"></i></span><span class="bn">${n}</span></div>`).join('')}</div>`}
+function renderStats(){
+  const its=S.items.filter(i=>!i.pending);
+  const artists=tally(its.map(i=>String(i.artiste||'').trim()).filter(a=>a&&!/^anonyme/i.test(a)));
+  const movs=tally(its.flatMap(i=>String(i.mouvement||'').split(/,\s*/).map(x=>x.trim())));
+  const cm=new Map();for(const i of its){const y=yearOf(i);if(y==null)continue;const c=centuryOf(y);cm.set(c,(cm.get(c)||0)+1)}
+  const cents=[...cm.entries()].sort((a,b)=>a[0]-b[0]).map(([c,n])=>[centuryLabel(c),n]);
+  const mus=tally(S.items.map(i=>i.musee));
+  const days=new Set(S.items.map(i=>i.visite)).size,fav=S.items.filter(i=>i.favori).length;
+  const card=(n,a,b)=>`<div class="stat"><b>${n}</b><span>${n>1?b:a}</span></div>`;
+  $('#exb').innerHTML=`<div class="stats">${card(S.items.length,'œuvre','œuvres')}${card(mus.length,'musée','musées')}${card(artists.length,'artiste','artistes')}${card(fav,'coup de cœur','coups de cœur')}${card(days,'jour de visite','jours de visite')}</div>
+  ${artists.length?`<div class="blk"><h3>Vos artistes</h3>${bars(artists)}</div>`:''}
+  ${movs.length?`<div class="blk"><h3>Mouvements et écoles</h3>${bars(movs)}</div>`:''}
+  ${cents.length?`<div class="blk"><h3>Par siècle</h3>${bars(cents,40)}</div>`:''}
+  <div class="blk"><h3>Par musée</h3>${bars(mus)}</div>`;
+}
+
 /* ---------- navigation ---------- */
 function fillLists(){
   const ms=[...new Set(S.items.map(i=>i.musee).filter(Boolean))],xs=[...new Set(S.items.map(i=>i.expo).filter(Boolean))];
   $('#dlMusees').innerHTML=ms.map(m=>`<option value="${esc(m)}">`).join('');$('#dlExpos').innerHTML=xs.map(m=>`<option value="${esc(m)}">`).join('');
 }
-const TABS=['capturer','musees','oeuvres','reglages'];
+const TABS=['capturer','musees','oeuvres','explorer','reglages'];
 function show(v){
   S.view=v;
   document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!=='v-'+v);
   document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.v===v||(v==='fiche'&&b.dataset.v==='musees')));
   if(TABS.includes(v)&&location.hash!=='#'+v)history.replaceState(null,'','#'+v);
-  if(v==='musees')renderMusees();else if(v==='oeuvres')renderOeuvres();else if(v==='fiche')renderFiche();else if(v==='reglages')renderReglages();else if(S.cap==='idle')renderCap();
+  if(v==='musees')renderMusees();else if(v==='oeuvres')renderOeuvres();else if(v==='explorer')renderExplorer();else if(v==='fiche')renderFiche();else if(v==='reglages')renderReglages();else if(S.cap==='idle')renderCap();
 }
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{if(b.dataset.v==='musees')S.museum=null;show(b.dataset.v);scrollTo(0,0)});
 addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(TABS.includes(h)&&h!==S.view)show(h)});
