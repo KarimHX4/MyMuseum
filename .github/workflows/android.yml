@@ -35,14 +35,18 @@ jobs:
         env:
           BUILD_NUMBER: ${{ github.run_number }}
 
-      - name: Clé de signature stable (pour pouvoir mettre à jour sans désinstaller)
-        run: mkdir -p ~/.android && cp android-signing/debug.keystore ~/.android/debug.keystore
-
       - name: Compilation de l'APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
       - run: cp android/app/build/outputs/apk/debug/app-debug.apk MyMuseum.apk
+
+      - name: Vérification de la signature (même clé à chaque version)
+        run: |
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$APKSIGNER" verify --print-certs MyMuseum.apk | tee certs.txt
+          EXPECTED=$(keytool -exportcert -keystore android-signing/debug.keystore -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1)
+          grep -qi "SHA-256 digest: $EXPECTED" certs.txt || { echo "Signature inattendue : l'APK ne pourrait pas mettre à jour la version installée."; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:

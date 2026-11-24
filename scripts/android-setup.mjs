@@ -22,6 +22,20 @@ cpSync('android-res', 'android/app/src/main/res', { recursive: true });
 const gradle = 'android/app/build.gradle';
 const n = parseInt(process.env.BUILD_NUMBER || '1', 10);
 let g = readFileSync(gradle, 'utf8');
+// Signature fixe : chaque APK est signé avec la même clé (android-signing/debug.keystore),
+// sinon Android refuse d'installer une mise à jour par-dessus la version précédente.
+if (!g.includes('android-signing/debug.keystore')) {
+  g = g.replace(/android\s*\{/, `android {
+    signingConfigs {
+        debug {
+            storeFile file("\${rootDir}/../android-signing/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+            storeType "pkcs12"
+        }
+    }`);
+}
 g = g.replace(/versionCode\s+\d+/, 'versionCode ' + n).replace(/versionName\s+"[^"]*"/, `versionName "1.0.${n}"`);
 writeFileSync(gradle, g);
 console.log(`Projet Android prêt (version 1.0.${n}, ${missing.length} permission(s) ajoutée(s)).`);
