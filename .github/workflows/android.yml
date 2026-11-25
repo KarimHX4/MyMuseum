@@ -26,6 +26,9 @@ jobs:
       - name: Dépendances
         run: npm install
 
+      - name: Diagnostic appareil photo (WebView Capacitor)
+        run: grep -n "resolveActivity\|isCaptureEnabled\|ACTION_IMAGE_CAPTURE" node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/BridgeWebChromeClient.java || true
+
       - name: Projet Android (Capacitor)
         run: |
           node scripts/build-web.mjs

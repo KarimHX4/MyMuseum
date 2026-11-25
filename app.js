@@ -39,13 +39,13 @@ const urls=new Map();
 const useRefFor=it=>!!((it.useRef===undefined||it.useRef===null?cfg.preferRef:it.useRef)&&it.refPhoto);
 const dispDims=it=>useRefFor(it)?{pw:it.refpw,ph:it.refph}:{pw:it.pw,ph:it.ph};
 function photoURL(it,which){
-  const b=which==='own'?it.photo:which==='ref'?it.refPhoto:(useRefFor(it)?it.refPhoto:it.photo);
-  if(!b)return '';const key=it.id+(b===it.refPhoto?'|r':'|o');
+  const b=which==='cartel'?it.cartel:which==='own'?it.photo:which==='ref'?it.refPhoto:(useRefFor(it)?it.refPhoto:it.photo);
+  if(!b)return '';const key=it.id+(which==='cartel'?'|c':b===it.refPhoto?'|r':'|o');
   const c=urls.get(key);if(c&&c.b===b)return c.u;
   if(c)URL.revokeObjectURL(c.u);
   const u=URL.createObjectURL(b);urls.set(key,{b,u});return u;
 }
-function dropURLs(id){for(const k of [id+'|o',id+'|r']){const c=urls.get(k);if(c){URL.revokeObjectURL(c.u);urls.delete(k)}}}
+function dropURLs(id){for(const k of [id+'|o',id+'|r',id+'|c']){const c=urls.get(k);if(c){URL.revokeObjectURL(c.u);urls.delete(k)}}}
 async function fetchRef(it){
   const file=it.wd&&it.wd.image;if(!file)throw new Error('Pas d’image de référence pour cette œuvre.');
   const j=await getJSON('https://commons.wikimedia.org/w/api.php?'+new URLSearchParams({action:'query',titles:'File:'+file,prop:'imageinfo',iiprop:'url',iiurlwidth:1600,format:'json',origin:'*'}));
@@ -326,8 +326,8 @@ function ctxText(){
   const x=b?b.expo||'':$('#vExpo').value.trim();
   return `Lieu de visite indiqué par le visiteur : ${v||'non précisé'}${vis.source==='gps'&&v?' (détecté par géolocalisation)':''}. Exposition temporaire : ${x||'aucune indiquée'}. Date de la visite : ${today()}.`;
 }
-function identPrompt(hint,withCartel){
-  return `Tu es conservateur de musée et historien de l'art. Identifie l'œuvre d'art sur la première photo, prise par un visiteur (prise de biais possible, reflets, cadre).${withCartel?' La seconde photo montre le cartel de l’œuvre : sers-t’en en priorité.':' Si un cartel est lisible sur la photo, sers-t’en.'}
+function identPrompt(hint,withCartel,cartelOnly){
+  return `Tu es conservateur de musée et historien de l'art. ${cartelOnly?'La photo jointe montre le cartel (l’étiquette) d’une œuvre, prise par un visiteur : l’œuvre elle-même n’est pas photographiée. Identifie l’œuvre d’après le texte du cartel.':'Identifie l’œuvre d’art sur la première photo, prise par un visiteur (prise de biais possible, reflets, cadre).'}${cartelOnly?'':withCartel?' La seconde photo montre le cartel de l’œuvre : sers-t’en en priorité.':' Si un cartel est lisible sur la photo, sers-t’en.'}
 ${ctxText()}${hint?'\nIndice donné par le visiteur : '+hint:''}
 Réponds par un objet JSON :
 {"reconnu":true,"confiance":"haute|moyenne|faible","titre":"titre usuel en français","titre_original":"","artiste":"nom complet ou 'Anonyme' + atelier/culture","date":"date ou période","technique":"technique et support","dimensions":"si connues, sinon ''","mouvement":"","conservation":{"institution":"musée ou institution qui possède l'œuvre (son nom, pas le département)","ville":""},"lieu_visite":{"musee":"nom officiel complet du lieu où le visiteur la voit","ville":""},"exposition":"nom de l'exposition temporaire si elle y est présentée, sinon ''","en_pret":false,"candidats":[{"titre":"","artiste":"","institution":""}],"remarque":"une phrase sur ce qui fonde ou limite l'identification"}
@@ -337,8 +337,7 @@ function wikiDigest(w,max=7000){if(!w)return '';let s='';for(const x of w.sectio
 function fichePrompt(f,wd,wiki){
   return `Tu es historien de l'art et médiateur de musée. Rédige en français la fiche d'une œuvre qu'un visiteur a aimée, pour qu'il en apprenne plus après sa visite. Ton : expert mais vivant, précis, sans remplissage.
 Œuvre : « ${f.titre} »${f.artiste?', '+f.artiste:''}${f.date?', '+f.date:''}${f.technique?', '+f.technique:''}. Conservée par : ${f.conservation||'non précisé'}. Vue à : ${f.vuA||f.musee||'?'}${(f.vuVille||f.ville)?' ('+(f.vuVille||f.ville)+')':''}${f.expo?', exposition temporaire « '+f.expo+' »':''}.
-${wd?`Données Wikidata : ${JSON.stringify({createur:wd.creators,date:wd.date,materiaux:wd.materiaux,dimensions:wd.dimensions,mouvement:wd.mouvement,genre:wd.genre,represente:wd.represente,collection:wd.collection})}\n`:''}${wiki?`Article Wikipédia (${wiki.lang}) « ${wiki.title} », à utiliser comme source principale ; ne contredis pas ses faits :\n"""${wikiDigest(wiki)}"""\n`:''}La photo jointe est celle du visiteur : appuie la description sur ce qu'on y voit.
-Réponds par un objet JSON :
+${wd?`Données Wikidata : ${JSON.stringify({createur:wd.creators,date:wd.date,materiaux:wd.materiaux,dimensions:wd.dimensions,mouvement:wd.mouvement,genre:wd.genre,represente:wd.represente,collection:wd.collection})}\n`:''}${wiki?`Article Wikipédia (${wiki.lang}) « ${wiki.title} », à utiliser comme source principale ; ne contredis pas ses faits :\n"""${wikiDigest(wiki)}"""\n`:''}${f.photo?'La photo jointe est celle du visiteur : appuie la description sur ce qu’on y voit.\n':''}Réponds par un objet JSON :
 {"accroche":"2 ou 3 phrases qui disent pourquoi cette œuvre compte","technique":"","dimensions":"ou ''","mouvement":"","contexte":"contexte historique, commande et création (2 paragraphes séparés par \\n)","description":"ce qu'on voit, du général au détail (1 à 2 paragraphes)","analyse":{"composition":"","couleur_lumiere_matiere":"","symbolique_interpretations":""},"artiste":"portrait de l'artiste centré sur ce qui éclaire l'œuvre (1 paragraphe)","histoire_oeuvre":"provenance, réception, restaurations, déplacements notables","anecdotes":["2 à 4 faits surprenants mais vérifiés"],"a_regarder":["4 à 6 détails précis à observer en la revoyant"],"oeuvres_liees":[{"titre":"","artiste":"","lieu":"où la voir","lien":"pourquoi la rapprocher"}],"aller_plus_loin":["3 à 5 livres, documentaires ou visites réels"],"debats":"ce qui est incertain ou discuté ; '' si rien","mots_cles":["5 à 8 mots-clés"]}
 Règles : uniquement des faits sûrs ; signale l'incertitude plutôt que d'inventer ; pas de références imaginaires.`;
 }
@@ -355,12 +354,13 @@ async function shrink(file,max=1600){
   }finally{URL.revokeObjectURL(url)}
 }
 const busy=()=>['ident','fiche','ocr'].includes(S.cap);
-function resetCap(){if(S.photo)URL.revokeObjectURL(S.photo.url);S.photo=null;S.cartel=null;S.ident=null;S.match=null;S.results=[];S.query='';S.replace=null;S.cap='idle'}
+function setCartel(b){if(S.cartelUrl)URL.revokeObjectURL(S.cartelUrl);S.cartel=b;S.cartelUrl=b?URL.createObjectURL(b):''}
+function resetCap(){if(S.photo)URL.revokeObjectURL(S.photo.url);S.photo=null;setCartel(null);S.ident=null;S.match=null;S.results=[];S.query='';S.replace=null;S.cap='idle'}
 async function takeFile(file){
   if(!file||busy())return;
   try{
     const blob=await shrink(file);
-    const keepReplace=S.replace;resetCap();S.replace=keepReplace;
+    const keepReplace=S.replace,keepCartel=S.cartel;resetCap();S.replace=keepReplace;if(keepCartel)setCartel(keepCartel);
     S.photo={blob,url:URL.createObjectURL(blob)};
     startIdentify();
   }catch(e){S.err=e.message;S.cap='error';renderCap()}
@@ -368,6 +368,8 @@ async function takeFile(file){
 function startIdentify(){if(hasAI())identify();else{S.cap='find';renderCap();setTimeout(()=>{const q=$('#fq');if(q)q.focus()},50)}}
 $('#inCam').addEventListener('change',e=>{takeFile(e.target.files[0]);e.target.value=''});
 $('#inImp').addEventListener('change',e=>{takeFile(e.target.files[0]);e.target.value=''});
+$('#inCartel0').addEventListener('change',async e=>{const file=e.target.files[0];e.target.value='';if(!file||busy())return;
+  try{const b=await shrink(file,2000);const keep=S.replace;resetCap();S.replace=keep;setCartel(b);if(hasAI())identify();else ocrCartel()}catch(er){S.err=er.message;S.cap='error';renderCap()}});
 const cv=$('#canvas');
 cv.addEventListener('dragover',e=>{e.preventDefault();cv.classList.add('drag')});
 cv.addEventListener('dragleave',()=>cv.classList.remove('drag'));
@@ -379,7 +381,7 @@ const curMuseum=()=>{const m=$('#cVu');const b=replBase();const bv=b&&(b.vuA||b.
 async function identify(){
   S.cap='ident';renderCap();
   try{
-    S.ident=await geminiJSON({prompt:identPrompt(LS.get('mm.hint',''),!!S.cartel),images:[S.photo.blob,...(S.cartel?[S.cartel]:[])],maxTokens:4096});
+    S.ident=await geminiJSON({prompt:identPrompt(LS.get('mm.hint',''),!!S.cartel,!S.photo),images:S.photo?[S.photo.blob,...(S.cartel?[S.cartel]:[])]:[S.cartel],maxTokens:4096});
     S.match=null;S.results=[];S.cap='confirm';renderCap();linkWikidata();
   }catch(e){S.err=e.message;S.errAI=true;S.cap='error';renderCap()}
 }
@@ -416,8 +418,11 @@ function renderResults(){
 }
 async function readCartel(file){
   if(!file)return;
-  try{S.cartel=await shrink(file,2000)}catch(e){toast(e.message);return}
+  try{setCartel(await shrink(file,2000))}catch(e){toast(e.message);return}
   if(hasAI()){identify();return}
+  ocrCartel();
+}
+async function ocrCartel(){
   S.cap='ocr';renderCap();
   try{
     const lines=cartelLines(await ocr(S.cartel));
@@ -430,7 +435,7 @@ async function readCartel(file){
   }catch(e){S.cap='find';renderCap();toast(e.message,6000)}
 }
 async function savePending(){
-  const it={id:S.replace||newId(),createdAt:Date.now(),visite:today(),titre:'Œuvre à identifier',artiste:'',date:'',musee:$('#vMusee').value.trim()||'Lieu non précisé',ville:$('#vVille').value.trim(),vuA:$('#vMusee').value.trim()||'Lieu non précisé',vuVille:$('#vVille').value.trim(),expo:$('#vExpo').value.trim(),conservation:'',photo:S.photo.blob,pending:true,notes:'',favori:false,qa:[]};
+  const it={id:S.replace||newId(),createdAt:Date.now(),visite:today(),titre:'Œuvre à identifier',artiste:'',date:'',musee:$('#vMusee').value.trim()||'Lieu non précisé',ville:$('#vVille').value.trim(),vuA:$('#vMusee').value.trim()||'Lieu non précisé',vuVille:$('#vVille').value.trim(),expo:$('#vExpo').value.trim(),conservation:'',photo:S.photo?S.photo.blob:S.cartel,cartel:S.cartel||null,pending:true,notes:'',favori:false,qa:[]};
   if(S.replace){const old=S.items.find(x=>x.id===S.replace);if(old)Object.assign(it,{createdAt:old.createdAt,visite:old.visite,musee:old.musee,ville:old.ville,vuA:old.vuA||old.musee,vuVille:old.vuVille||old.ville,expo:old.expo,notes:old.notes,favori:old.favori})}
   Object.assign(it,await measure(it.photo),{loc:it.loc||locFor(it.musee)});
   await save(it);resetCap();renderCap();fillLists();toast('Photo gardée : vous la retrouverez dans « Œuvres », à identifier.');openFiche(it.id);
@@ -447,15 +452,15 @@ function renderLink(){
   $('#chg').onclick=()=>{S.cap='find';S.query=(S.ident&&S.ident.titre)||S.query;renderCap()};
 }
 function renderCap(){
-  const has=!!S.photo;
+  const has=!!(S.photo||S.cartel);
   $('#empty').hidden=has;
   setFrameClass($('#capFrame'),cfg.frame==='auto'?'dore':cfg.frame);
   cv.querySelectorAll(':scope>img,.scan').forEach(n=>n.remove());
-  if(has){const i=new Image();i.src=S.photo.url;i.alt='Votre photo';cv.appendChild(i)}
+  if(has){const i=new Image();i.src=S.photo?S.photo.url:S.cartelUrl;i.alt=S.photo?'Votre photo':'Le cartel';cv.appendChild(i)}
   if(busy()){const sc=document.createElement('div');sc.className='scan';cv.appendChild(sc)}
   const side=$('#side');
   const cartelBtn=`<label class="btn small"><input type="file" accept="image/*" capture="environment" class="cartelIn" hidden>${S.cartel?'Reprendre le cartel':'Photographier le cartel'}</label>`;
-  const again=`<div class="row" style="margin-top:14px">${has&&!busy()?'<button class="btn small" id="crop">Recadrer</button>':''}<label class="btn small"><input type="file" accept="image/*" capture="environment" class="re" hidden>Reprendre la photo</label>${has?'<button class="btn small" id="later">Identifier plus tard</button><button class="btn small" id="cancel">Annuler</button>':''}</div>`;
+  const again=`<div class="row" style="margin-top:14px">${has&&!busy()?'<button class="btn small" id="crop">Recadrer</button>':''}<label class="btn small"><input type="file" accept="image/*" capture="environment" class="re" hidden>${S.photo?'Reprendre la photo':'Photographier aussi l’œuvre'}</label>${has?'<button class="btn small" id="later">Identifier plus tard</button><button class="btn small" id="cancel">Annuler</button>':''}</div>`;
   if(S.cap==='idle'){
     side.innerHTML=`<h2>Photographiez, on s’occupe du reste</h2><p class="lead">${hasAI()?'Gemini reconnaît l’œuvre, la fiche est complétée avec Wikipédia et Wikidata,':'Retrouvez l’œuvre dans les collections du musée (Wikidata) ou lisez son cartel : la fiche est faite avec Wikipédia,'} puis rangée dans le dossier du musée, et de l’exposition si elle est temporaire.</p>
     ${hasAI()?'<label class="f">Un indice pour aider (facultatif)<input id="hint" placeholder="Texte du cartel, salle, nom de l’artiste…"></label>':'<p class="note">Astuce : ajoutez une clé Gemini gratuite dans les Réglages pour que l’app reconnaisse l’œuvre sur la photo.</p>'}`;
@@ -514,7 +519,7 @@ function renderCap(){
   side.querySelectorAll('input.cartelIn').forEach(n=>n.addEventListener('change',e=>{readCartel(e.target.files[0]);e.target.value=''}));
   const cn=$('#cancel');if(cn)cn.onclick=()=>{resetCap();renderCap()};
   const lt=$('#later');if(lt)lt.onclick=savePending;
-  const cr=$('#crop');if(cr)cr.onclick=async()=>{const b=await openCropper(S.photo.blob);if(b&&S.photo){URL.revokeObjectURL(S.photo.url);S.photo={blob:b,url:URL.createObjectURL(b)};renderCap()}};
+  const cr=$('#crop');if(cr)cr.onclick=async()=>{const b=await openCropper(S.photo?S.photo.blob:S.cartel);if(!b)return;if(S.photo){URL.revokeObjectURL(S.photo.url);S.photo={blob:b,url:URL.createObjectURL(b)}}else setCartel(b);renderCap()};
 }
 const MUS_RE=/mus[ée]e|museum|museo|galerie|gallery|galleria|fondation|foundation|pinacot|kunsthalle|palais|ch[âa]teau|collection|biblioth[èe]que|abbaye|hermitage|ermitage|rijks|prado|uffizi|offices|tate|moma/i;
 const DEPT_RE=/^(d[ée]partement|department|cabinet|section|salle|r[ée]serve|d[ée]p[ôo]t)\b/i;
@@ -559,7 +564,7 @@ function applySources(it,src){
 async function create(){
   const v=id=>$(id).value.trim();
   const id0=S.ident||{};
-  const co0=id0.conservation||{};const f={titre:v('#cTitre')||'Œuvre sans titre',artiste:v('#cArt'),date:v('#cDate'),conservation:v('#cCons'),vuA:v('#cVu')||'Lieu non précisé',vuVille:v('#cVille'),homeVille:co0.ville&&norm(homeName(co0.institution))===norm(v('#cCons'))?co0.ville:'',expo:v('#cExpo'),technique:id0.technique||'',dimensions:id0.dimensions||'',mouvement:id0.mouvement||'',photo:S.photo.blob};
+  const co0=id0.conservation||{};const f={titre:v('#cTitre')||'Œuvre sans titre',artiste:v('#cArt'),date:v('#cDate'),conservation:v('#cCons'),vuA:v('#cVu')||'Lieu non précisé',vuVille:v('#cVille'),homeVille:co0.ville&&norm(homeName(co0.institution))===norm(v('#cCons'))?co0.ville:'',expo:v('#cExpo'),technique:id0.technique||'',dimensions:id0.dimensions||'',mouvement:id0.mouvement||'',photo:S.photo?S.photo.blob:null,cartel:S.cartel||null};
   if(!S.replace&&S.cf&&!S.cf.vuDirty&&f.expo!==vis.expo){vis.expo=f.expo;saveVis();$('#vExpo').value=f.expo}
   if(!S.replace&&S.cf&&S.cf.vuDirty)setVisit(f.vuA,f.vuVille,f.expo,vis.source==='gps'&&norm(f.vuA)===norm(vis.musee)?'gps':'manuel',norm(f.vuA)===norm(vis.musee)?vis.qid:undefined,norm(f.vuA)===norm(vis.musee)&&vis.lat!=null?{lat:vis.lat,lon:vis.lon}:null);
   const qid=S.match&&S.match.qid||'';
@@ -570,12 +575,14 @@ async function create(){
   const base=S.replace&&S.items.find(x=>x.id===S.replace);
   const it={id:base?base.id:newId(),createdAt:base?base.createdAt:Date.now(),visite:base?base.visite:today(),notes:base?base.notes:'',favori:base?base.favori:false,frame:base?base.frame||'':'',qa:[],...f,qid,pending:false,...(await measure(f.photo))};
   applySources(it,src);
+  if(!it.photo){step('Image de référence…');try{Object.assign(it,await fetchRef(it),{useRef:true})}catch(e){if(S.cartel){it.photo=S.cartel;Object.assign(it,await measure(S.cartel))}}}
   it.musee=folderFor(it);it.ville=folderCity(it,it.musee);it.loc=base&&base.loc&&norm(base.musee)===norm(it.musee)?base.loc:locFor(it.musee);it.enPret=enPret(it);
   await save(it);
   if(src.aiErr)toast('Analyse Gemini indisponible ('+src.aiErr+') : fiche créée avec Wikipédia. « Mettre à jour » la complétera plus tard.',7000);
   resetCap();LS.set('mm.hint','');renderCap();fillLists();openFiche(it.id);
 }
 
+const backBtn=(label)=>`<button class="back" id="bk"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>${label}</span></button>`;
 /* ---------- regroupements ---------- */
 const thumb=it=>{const u=photoURL(it);return u?`<img src="${esc(u)}" alt="" loading="lazy">`:''};
 function museums(){
@@ -600,7 +607,7 @@ function renderMusees(){
     for(const it of g.items){const vu=it.vuA||it.musee,here=norm(vu)===norm(it.musee);const k=(here?'':'@'+norm(vu)+'|')+(it.expo?norm(it.expo):'');if(!groups.has(k))groups.set(k,{nom:it.expo,vu:here?'':vu,items:[],dates:new Set()});const x=groups.get(k);x.items.push(it);x.dates.add(it.visite)}
     const order=[...groups.entries()].sort((a,b)=>(a[0]===''?-1:b[0]===''?1:b[1].items[0].createdAt-a[1].items[0].createdAt));
     const gTitle=x=>x.vu?(x.nom?'Vue lors de l’exposition « '+esc(x.nom)+' » · '+esc(cap1(x.vu)):'Vue à '+esc(cap1(x.vu))):(x.nom?'Exposition « '+esc(x.nom)+' »':'Collections permanentes');
-    root.innerHTML=`<button class="back" id="bk">← Tous les musées</button>
+    root.innerHTML=`${backBtn('Tous les musées')}
     <div class="mhead" style="background:${wc};--wtx:${tx}"><h2>${esc(g.nom)}</h2><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}</div></div>
     <div class="row" style="justify-content:space-between;margin-bottom:16px"><div class="segm" id="mv"><button data-m="mur" aria-pressed="${mode==='mur'}">Mur</button><button data-m="liste" aria-pressed="${mode!=='mur'}">Liste</button></div>
     <div class="swatches" id="wsw">${WALLS.map(([c,n])=>`<button data-c="${c}" title="Mur ${esc(n)}" aria-label="Mur ${esc(n)}" style="background:${c}" aria-pressed="${c===wc}"></button>`).join('')}</div></div>`+
@@ -647,13 +654,13 @@ async function copyText(t){
 }
 function renderFiche(){
   const root=$('#v-fiche');const it=S.items.find(x=>x.id===S.ficheId);
-  if(!it){root.innerHTML=`<button class="back" id="bk">← Retour</button><div class="emptyst"><h3>Fiche introuvable</h3></div>`;$('#bk').onclick=()=>show('musees');return}
+  if(!it){root.innerHTML=`${backBtn('Retour')}<div class="emptyst"><h3>Fiche introuvable</h3></div>`;$('#bk').onclick=()=>show('musees');return}
   const f=it.fiche||{},a=f.analyse||{},wd=it.wd||null,w=it.wiki||null,aw=it.artistWiki||null;
   const spec=[['Technique',it.technique],['Dimensions',it.dimensions],['Mouvement',it.mouvement],['Genre',wd&&wd.genre],['Conservée à',it.conservation],['N° d’inventaire',wd&&wd.inventaire],['Représente',wd&&wd.represente&&wd.represente.join(', ')]].filter(x=>x[1]);
   const lies=(f.oeuvres_liees||[]).filter(x=>x&&x.titre).map(x=>`<li><i>${esc(x.titre)}</i>${x.artiste?', '+esc(x.artiste):''}${x.lieu?' ('+esc(x.lieu)+')':''}${x.lien?' : '+esc(x.lien):''}</li>`).join('');
   const wsecs=w?w.sections:[];const intro=wsecs[0]&&!wsecs[0].h?wsecs[0]:null;const rest=wsecs.filter(s=>s.h);
   const noAI=!f.accroche&&!f.contexte;
-  root.innerHTML=`<button class="back" id="bk">← ${esc(it.musee)}</button>
+  root.innerHTML=`${backBtn(esc(cap1(it.musee)))}
   ${it.pending?`<div class="pend"><b>Œuvre à identifier.</b> La photo et le lieu sont gardés ; identifiez-la quand vous aurez du réseau.<button class="btn main small" id="idn">Identifier maintenant</button></div>`:''}
   <div class="fiche"><div class="left">${frameWrap(it,thumb(it)?(dimsOf(it)&&isFlat(it)?`<div class="ci bigci" style="${ciStyle(it)};--r:${ratioOf(it).toFixed(3)}">${thumb(it)}</div>`:thumb(it)):'<div class="nophoto">Pas de photo</div>','bigfr')}
     ${useRefFor(it)&&wd&&wd.image?`<p class="src" style="margin-top:8px">Image de référence · <a href="https://commons.wikimedia.org/wiki/File:${encodeURIComponent(wd.image)}" target="_blank" rel="noopener">Wikimedia Commons</a></p>`:''}
@@ -692,7 +699,7 @@ function renderFiche(){
   </div></div>`;
   const cur=()=>S.items.find(x=>x.id===it.id)||it;
   $('#bk').onclick=()=>{S.museum=norm(it.musee)||'_';show('musees')};
-  const big=root.querySelector('.bigfr');if(big&&(it.photo||it.refPhoto))big.onclick=()=>{const c=cur();const own={label:'Ma photo',src:photoURL(c,'own')},ref=c.wd&&c.wd.image?{label:'Image de référence',src:c.refPhoto?photoURL(c,'ref'):commonsThumb(c.wd.image,2400)}:null;openViewer(useRefFor(c)?[ref,own]:[own,ref])};
+  const big=root.querySelector('.bigfr');if(big&&(it.photo||it.refPhoto))big.onclick=()=>{const c=cur();const own={label:'Ma photo',src:photoURL(c,'own')},ref=c.wd&&c.wd.image?{label:'Image de référence',src:c.refPhoto?photoURL(c,'ref'):commonsThumb(c.wd.image,2400)}:null;const car=c.cartel&&c.cartel!==c.photo?{label:'Cartel',src:photoURL(c,'cartel')}:null;openViewer((useRefFor(c)?[ref,own]:[own,ref]).concat([car]))};
   const frB=$('#frBtn'),fp=$('#fpick');frB.onclick=()=>{fp.hidden=!fp.hidden;frB.setAttribute('aria-expanded',!fp.hidden)};
   root.querySelectorAll('#srcSeg [data-s]').forEach(b=>b.onclick=async()=>{const c=cur(),want=b.dataset.s==='ref';if(want===useRefFor(c))return;
     if(want&&!c.refPhoto){b.textContent='Téléchargement…';try{await upd(it.id,{...(await fetchRef(c)),useRef:true})}catch(e){toast(e.message,5000);renderFiche();return}}
@@ -745,6 +752,17 @@ async function renderReglages(){
   root.innerHTML=`<div class="set"><div class="head"><h2>Réglages</h2></div>
   <div class="card"><h3>Reconnaissance par Gemini (gratuit, facultatif)</h3>
     <p>Sans clé, l’app fonctionne avec Wikidata, Wikipédia et la lecture du cartel. Avec une clé Gemini <b>gratuite</b>, elle reconnaît l’œuvre sur la photo et rédige une analyse. La clé se crée en deux minutes sur <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a>, sans carte bancaire. Ne cliquez pas sur « Set up billing » : tant qu’aucun moyen de paiement n’est lié, rien ne peut être facturé.</p>
+    <details class="howto"${cfg.gemKey?'':' open'}><summary>Comment obtenir une clé gratuite</summary>
+      <ol>
+        <li>Ouvrez <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com/app/apikey</a> dans le navigateur du téléphone et connectez-vous avec votre compte Google.</li>
+        <li>Acceptez les conditions d’utilisation si on vous les présente.</li>
+        <li>Touchez <b>Create API key</b> (Créer une clé API). Si on vous demande un projet, choisissez celui proposé par défaut.</li>
+        <li>Touchez l’icône <b>Copier</b> à côté de la clé. Elle commence par <code>AQ.</code> (ou <code>AIza</code> pour les anciennes clés).</li>
+        <li>Revenez ici, collez-la dans le champ ci-dessous (appui long → Coller), puis touchez <b>Vérifier la clé</b>.</li>
+      </ol>
+      <p><b>Pour rester à 0 €</b> : ne cliquez jamais sur « Set up billing » ou « Upgrade » et n’ajoutez aucun moyen de paiement. Quand le quota gratuit du jour est atteint, l’app vous le dit et continue sans IA ; rien n’est facturé.</p>
+      <p>Ne publiez pas votre clé (dans GitHub par exemple) : elle reste sur ce téléphone. Si elle a fuité, supprimez-la dans AI Studio et créez-en une autre.</p>
+    </details>
     <label class="f">Clé API Gemini<input id="sKey" type="password" autocomplete="off" placeholder="AQ.… (ou AIza…)"></label>
     <div class="row" style="margin:-4px 0 12px"><button class="btn small" id="sShow">Afficher</button><button class="btn small" id="sTest">Vérifier la clé</button>${cfg.gemKey?'<button class="btn small" id="sDel">Retirer la clé</button>':''}</div>
     <p class="note" id="sTestR"></p>
@@ -796,7 +814,7 @@ const blobToDataURL=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload
 async function exportBackup(){
   if(!S.items.length){toast('Rien à exporter pour le moment');return}
   toast('Préparation de la sauvegarde…');
-  const items=[];for(const it of S.items){const o={...it};if(it.photo)o.photo=await blobToDataURL(it.photo);if(it.refPhoto)o.refPhoto=await blobToDataURL(it.refPhoto);items.push(o)}
+  const items=[];for(const it of S.items){const o={...it};if(it.photo)o.photo=await blobToDataURL(it.photo);if(it.refPhoto)o.refPhoto=await blobToDataURL(it.refPhoto);if(it.cartel)o.cartel=await blobToDataURL(it.cartel);items.push(o)}
   const json=JSON.stringify({app:'MyMuseum',version:2,exported:new Date().toISOString(),items});
   const name='MyMuseum-sauvegarde-'+today()+'.json';
   try{
@@ -816,7 +834,7 @@ $('#inBackup').addEventListener('change',async e=>{
     const data=JSON.parse(await file.text());
     if(!data||data.app!=='MyMuseum'||!Array.isArray(data.items))throw new Error('ce fichier n’est pas une sauvegarde MyMuseum');
     let n=0;
-    for(const o of data.items){if(!o||!o.id)continue;const it={...o};if(typeof o.photo==='string'&&o.photo.startsWith('data:image/'))it.photo=await (await fetch(o.photo)).blob();else delete it.photo;if(typeof o.refPhoto==='string'&&o.refPhoto.startsWith('data:image/'))it.refPhoto=await (await fetch(o.refPhoto)).blob();else delete it.refPhoto;await DB.put(it);n++}
+    for(const o of data.items){if(!o||!o.id)continue;const it={...o};if(typeof o.photo==='string'&&o.photo.startsWith('data:image/'))it.photo=await (await fetch(o.photo)).blob();else delete it.photo;if(typeof o.refPhoto==='string'&&o.refPhoto.startsWith('data:image/'))it.refPhoto=await (await fetch(o.refPhoto)).blob();else delete it.refPhoto;if(typeof o.cartel==='string'&&o.cartel.startsWith('data:image/'))it.cartel=await (await fetch(o.cartel)).blob();else delete it.cartel;await DB.put(it);n++}
     S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);fillLists();
     toast(plural(n,'œuvre')+' importée'+(n>1?'s':''));if(S.view==='reglages')renderReglages();
   }catch(er){toast('Import impossible : '+er.message,6000)}

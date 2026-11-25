@@ -15,6 +15,11 @@ const perms = [
 ];
 const missing = perms.filter(p => !m.includes(p.match(/name="([^"]+)"/)[1] + '"'));
 if (missing.length) m = m.replace('</manifest>', '    ' + missing.join('\n    ') + '\n</manifest>');
+// Android 11+ : sans cette déclaration, la WebView ne « voit » pas l'appareil photo
+// et le bouton « Prendre une photo » ouvre la galerie au lieu de la caméra.
+if (!m.includes('android.media.action.IMAGE_CAPTURE')) {
+  m = m.replace('</manifest>', '    <queries>\n        <intent>\n            <action android:name="android.media.action.IMAGE_CAPTURE" />\n        </intent>\n    </queries>\n</manifest>');
+}
 writeFileSync(manifest, m);
 
 cpSync('android-res', 'android/app/src/main/res', { recursive: true });
