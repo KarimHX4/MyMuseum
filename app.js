@@ -360,22 +360,54 @@ let RUN=0,CTL=null;
 function newRun(){if(CTL)CTL.abort();CTL=new AbortController();return ++RUN}
 function cancelRun(){RUN++;if(CTL){CTL.abort();CTL=null}}
 const isAbort=e=>!!e&&(e.name==='AbortError'||e.aborted===true);
-function setCartel(b){if(S.cartelUrl)URL.revokeObjectURL(S.cartelUrl);S.cartel=b;S.cartelUrl=b?URL.createObjectURL(b):''}
-function resetCap(){if(S.photo)URL.revokeObjectURL(S.photo.url);S.photo=null;setCartel(null);S.ident=null;S.match=null;S.results=[];S.query='';S.replace=null;S.cap='idle'}
+function setCartel(b){if(S.cartelUrl)URL.revokeObjectURL(S.cartelUrl);S.cartel=b;S.cartelUrl=b?URL.createObjectURL(b):'';S.cartelHash='';if(b)phash(b).then(h=>{if(S.cartel===b){S.cartelHash=h;renderDup()}})}
+function resetCap(){if(S.photo)URL.revokeObjectURL(S.photo.url);S.photo=null;S.photoHash='';S.dupIgnore=new Set();setCartel(null);S.ident=null;S.match=null;S.results=[];S.query='';S.replace=null;S.cap='idle'}
+/* empreinte d'image (dHash 64 bits) pour repérer une photo déjà importée */
+async function phash(blob){
+  try{const bm=await createImageBitmap(blob);const c=document.createElement('canvas');c.width=9;c.height=8;const x=c.getContext('2d');x.drawImage(bm,0,0,9,8);if(bm.close)bm.close();
+    const d=x.getImageData(0,0,9,8).data,g=[];for(let i=0;i<72;i++)g.push(d[i*4]*.299+d[i*4+1]*.587+d[i*4+2]*.114);
+    let h='';for(let y=0;y<8;y++){let v=0;for(let k=0;k<8;k++)v=v<<1|(g[y*9+k]>g[y*9+k+1]?1:0);h+=v.toString(16).padStart(2,'0')}return h}catch(e){return ''}
+}
+const POP=[0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4];
+function hamming(a,b){if(!a||!b||a.length!==b.length)return 99;let n=0;for(let i=0;i<a.length;i++)n+=POP[parseInt(a[i],16)^parseInt(b[i],16)];return n}
+function dupItems(){
+  const ign=S.dupIgnore||new Set(),out=new Map();
+  const d=S.ident||{},q=S.match&&S.match.qid,t=norm(d.titre),a=norm(d.artiste);
+  for(const it of S.items){
+    if(it.id===S.replace||ign.has(it.id))continue;
+    if(S.photoHash&&it.phash&&hamming(S.photoHash,it.phash)<=8){out.set(it.id,{it,why:'photo'});continue}
+    if(S.cartelHash&&it.chash&&hamming(S.cartelHash,it.chash)<=6){out.set(it.id,{it,why:'cartel'});continue}
+    if(it.pending)continue;
+    if(q&&it.qid===q){out.set(it.id,{it,why:'œuvre'});continue}
+    if(t&&t.length>3&&norm(it.titre)===t&&(!a||!it.artiste||norm(it.artiste).split(' ').some(w=>w.length>3&&a.includes(w))))out.set(it.id,{it,why:'œuvre'});
+  }
+  return [...out.values()].slice(0,3);
+}
+function renderDup(){
+  const el=$('#dupw');if(!el)return;const ds=dupItems();
+  el.innerHTML=ds.map(({it,why})=>`<div class="dupw" data-id="${esc(it.id)}"><div class="dthumb">${thumb(it)}</div><div class="dtx"><b>Déjà dans votre carnet ?</b><span>${why==='photo'?'Cette photo ressemble beaucoup à celle de':why==='cartel'?'Ce cartel ressemble à celui de':'Vous avez déjà une fiche pour'} <i>${esc(it.titre)}</i>${it.visite?', vue le '+esc(fdate(it.visite)):''}${it.vuA||it.musee?' à '+esc(cap1(it.vuA||it.musee)):''}.</span>
+    <div class="row"><button class="btn small main" data-a="open">Ouvrir sa fiche</button>${S.photo&&!it.pending?'<button class="btn small" data-a="photo">Remplacer sa photo</button>':''}<button class="btn small" data-a="no">Ce n’est pas la même</button></div></div></div>`).join('');
+  el.querySelectorAll('.dupw').forEach(box=>{const id=box.dataset.id;
+    box.querySelector('[data-a=open]').onclick=()=>{cancelRun();resetCap();renderCap();openFiche(id)};
+    const p=box.querySelector('[data-a=photo]');if(p)p.onclick=async()=>{const b=S.photo.blob,h=S.photoHash;cancelRun();await upd(id,{photo:b,phash:h,useRef:false,...(await measure(b))});dropURLs(id);resetCap();renderCap();toast('Photo de la fiche remplacée');openFiche(id)};
+    box.querySelector('[data-a=no]').onclick=()=>{(S.dupIgnore=S.dupIgnore||new Set()).add(id);renderDup()};
+  });
+}
 async function takeFile(file){
   if(!file||busy())return;
   try{
     const blob=await shrink(file);
     const keepReplace=S.replace,keepCartel=S.cartel;resetCap();S.replace=keepReplace;if(keepCartel)setCartel(keepCartel);
-    S.photo={blob,url:URL.createObjectURL(blob)};
+    S.photo={blob,url:URL.createObjectURL(blob)};S.photoHash='';
     startIdentify();
+    phash(blob).then(h=>{if(S.photo&&S.photo.blob===blob){S.photoHash=h;renderDup()}});
   }catch(e){S.err=e.message;S.cap='error';renderCap()}
 }
 function startIdentify(){if(hasAI())identify();else{S.cap='find';renderCap();setTimeout(()=>{const q=$('#fq');if(q)q.focus()},50)}}
 $('#inCam').addEventListener('change',e=>{takeFile(e.target.files[0]);e.target.value=''});
 $('#inImp').addEventListener('change',e=>{takeFile(e.target.files[0]);e.target.value=''});
-$('#inCartel0').addEventListener('change',async e=>{const file=e.target.files[0];e.target.value='';if(!file||busy())return;
-  try{const b=await shrink(file,2000);const keep=S.replace;resetCap();S.replace=keep;setCartel(b);if(hasAI())identify();else ocrCartel()}catch(er){S.err=er.message;S.cap='error';renderCap()}});
+['#inCartel0','#inCartel1'].forEach(id=>$(id).addEventListener('change',async e=>{const file=e.target.files[0];e.target.value='';if(!file||busy())return;
+  try{const b=await shrink(file,2000);const keep=S.replace;resetCap();S.replace=keep;setCartel(b);if(hasAI())identify();else ocrCartel()}catch(er){S.err=er.message;S.cap='error';renderCap()}}));
 const cv=$('#canvas');
 cv.addEventListener('dragover',e=>{e.preventDefault();cv.classList.add('drag')});
 cv.addEventListener('dragleave',()=>cv.classList.remove('drag'));
@@ -458,7 +490,7 @@ async function ocrCartel(){
 async function savePending(){
   const it={id:S.replace||newId(),createdAt:Date.now(),visite:today(),titre:'Œuvre à identifier',artiste:'',date:'',musee:$('#vMusee').value.trim()||'Lieu non précisé',ville:$('#vVille').value.trim(),vuA:$('#vMusee').value.trim()||'Lieu non précisé',vuVille:$('#vVille').value.trim(),expo:$('#vExpo').value.trim(),conservation:'',photo:S.photo?S.photo.blob:S.cartel,cartel:S.cartel||null,pending:true,notes:'',favori:false,qa:[]};
   if(S.replace){const old=S.items.find(x=>x.id===S.replace);if(old)Object.assign(it,{createdAt:old.createdAt,visite:old.visite,musee:old.musee,ville:old.ville,vuA:old.vuA||old.musee,vuVille:old.vuVille||old.ville,expo:old.expo,notes:old.notes,favori:old.favori})}
-  Object.assign(it,await measure(it.photo),{loc:it.loc||locFor(it.musee)});
+  Object.assign(it,await measure(it.photo),{loc:it.loc||locFor(it.musee),phash:S.photo?(S.photoHash||await phash(S.photo.blob)):'',chash:S.cartel?(S.cartelHash||await phash(S.cartel)):''});
   await save(it);resetCap();renderCap();fillLists();toast('Photo gardée : vous la retrouverez dans « Œuvres », à identifier.');openFiche(it.id);
 }
 
@@ -468,9 +500,12 @@ function renderLink(){
   const m=S.match;
   if(S.linking){el.innerHTML='<div><span class="spin"></span>Recherche de la fiche Wikipédia…</div><button class="btn small" id="lkx">Annuler</button>';$('#lkx').onclick=()=>{LINK++;S.linking=false;renderLink()};return}
   const cc=$('#cCons');if(cc&&!cc.value.trim()&&m&&m.home){cc.value=m.home;syncVu()}
-  el.innerHTML=m?`${m.image?`<img src="${esc(commonsThumb(m.image,120))}" alt="" onerror="this.remove()">`:''}<div><small>Fiche Wikidata / Wikipédia</small><b>${esc(m.label)}</b><small>${esc([m.creator,m.year].filter(Boolean).join(', '))}</small></div><button class="btn small" id="chg">Changer</button>`
+  el.classList.toggle('big',!!(m&&m.image));
+  el.innerHTML=m?(m.image?`<div class="refbig"><img src="${esc(commonsThumb(m.image,700))}" alt="Image de référence" onerror="this.parentNode.classList.add('noimg');this.remove()"><span class="rlab">Image de référence</span></div><div class="reftx"><b>Est-ce bien cette œuvre ?</b><span><i>${esc(m.label)}</i>${m.creator?' · '+esc(m.creator):''}${m.year?', '+esc(m.year):''}</span><div class="row"><button class="btn small" id="chg">Non, chercher une autre</button></div></div>`
+      :`<div><small>Fiche Wikidata / Wikipédia (pas d’image de référence)</small><b>${esc(m.label)}</b><small>${esc([m.creator,m.year].filter(Boolean).join(', '))}</small></div><button class="btn small" id="chg">Changer</button>`)
     :`<div><small>Aucune fiche Wikidata liée</small>${hasAI()?'La fiche sera rédigée par Gemini seul.':'La fiche ne contiendra que vos informations.'}</div><button class="btn small" id="chg">Chercher</button>`;
   $('#chg').onclick=()=>{S.cap='find';S.query=(S.ident&&S.ident.titre)||S.query;renderCap()};
+  renderDup();
 }
 function renderCap(){
   const has=!!(S.photo||S.cartel);
@@ -480,7 +515,8 @@ function renderCap(){
   if(has){const i=new Image();i.src=S.photo?S.photo.url:S.cartelUrl;i.alt=S.photo?'Votre photo':'Le cartel';cv.appendChild(i)}
   if(busy()){const sc=document.createElement('div');sc.className='scan';cv.appendChild(sc)}
   const side=$('#side');
-  const cartelBtn=`<label class="btn small"><input type="file" accept="image/*" capture="environment" class="cartelIn" hidden>${S.cartel?'Reprendre le cartel':'Photographier le cartel'}</label>`;
+  const dupZone=S.cap==='idle'?'':'<div id="dupw"></div>';
+  const cartelBtn=`<label class="btn small"><input type="file" accept="image/*" capture="environment" class="cartelIn" hidden>${S.cartel?'Reprendre le cartel':'Photographier le cartel'}</label><label class="btn small"><input type="file" accept="image/*" class="cartelIn" hidden>Importer un cartel</label>`;
   const again=`<div class="row" style="margin-top:14px">${has&&!busy()?'<button class="btn small" id="crop">Recadrer</button>':''}<label class="btn small"><input type="file" accept="image/*" capture="environment" class="re" hidden>${S.photo?'Reprendre la photo':'Photographier aussi l’œuvre'}</label>${has?'<button class="btn small" id="later">Identifier plus tard</button><button class="btn small" id="cancel">Annuler</button>':''}</div>`;
   if(S.cap==='idle'){
     side.innerHTML=`<h2>Photographiez, on s’occupe du reste</h2><p class="lead">${hasAI()?'Gemini reconnaît l’œuvre, la fiche est complétée avec Wikipédia et Wikidata,':'Retrouvez l’œuvre dans les collections du musée (Wikidata) ou lisez son cartel : la fiche est faite avec Wikipédia,'} puis rangée dans le dossier du musée, et de l’exposition si elle est temporaire.</p>
@@ -543,6 +579,7 @@ function renderCap(){
     side.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{const x=cand[+b.dataset.c];set('#cTitre',x.titre);set('#cArt',x.artiste);set('#cCons',homeName(x.institution));S.cf.homeM=homeName(x.institution);S.cf.homeV='';syncVu();side.querySelectorAll('[data-c]').forEach(z=>z.setAttribute('aria-pressed',z===b));S.ident=Object.assign({},S.ident,{titre:x.titre,artiste:x.artiste});S.match=null;linkWikidata()});
     $('#go').onclick=create;renderLink();
   }
+  if(dupZone){side.insertAdjacentHTML('afterbegin',dupZone);renderDup()}
   side.querySelectorAll('input.re').forEach(n=>n.addEventListener('change',e=>takeFile(e.target.files[0])));
   side.querySelectorAll('input.cartelIn').forEach(n=>n.addEventListener('change',e=>{readCartel(e.target.files[0]);e.target.value=''}));
   const cn=$('#cancel');if(cn)cn.onclick=()=>{cancelRun();resetCap();renderCap()};
@@ -610,6 +647,7 @@ async function create(){
   const base=S.replace&&S.items.find(x=>x.id===S.replace);
   const it={id:base?base.id:newId(),createdAt:base?base.createdAt:Date.now(),visite:base?base.visite:today(),notes:base?base.notes:'',favori:base?base.favori:false,frame:base?base.frame||'':'',qa:[],...f,qid,pending:false,...(await measure(f.photo))};
   applySources(it,src);
+  it.phash=f.photo?(S.photoHash||await phash(f.photo)):'';it.chash=S.cartel?(S.cartelHash||await phash(S.cartel)):'';
   if(!it.photo){step('Image de référence…');try{Object.assign(it,await fetchRef(it),{useRef:true})}catch(e){if(S.cartel){it.photo=S.cartel;Object.assign(it,await measure(S.cartel))}}if(run!==RUN)return}
   {const h=homeName(it.conservation),hc=canonMuseum(h);if(h&&hc!==h)it.conservation=hc;if(it.vuA)it.vuA=canonMuseum(it.vuA)}
   it.musee=canonMuseum(folderFor(it));it.ville=folderCity(it,it.musee);it.loc=base&&base.loc&&norm(base.musee)===norm(it.musee)?base.loc:locFor(it.musee);it.enPret=enPret(it);
@@ -727,11 +765,14 @@ function renderMusees(){
   root.innerHTML=`<div class="head"><h2>Mes musées</h2>${S.items.length?'<button class="btn small" id="rnd">Revoir une œuvre au hasard</button>':''}</div>
   <div class="mtabs"><div class="segm" id="mtab">${Object.entries(MODES).map(([k,[l]])=>`<button data-t="${k}" aria-pressed="${mode===k}">${l}</button>`).join('')}</div><p class="note">${mode==='visite'?'Les lieux où vous avez vu les œuvres, expositions temporaires comprises.':'Les musées qui possèdent les œuvres que vous avez aimées, même si vous les avez vues ailleurs.'}</p></div>`+
   dups.map((c,ci)=>`<div class="dup" data-dup="${ci}"><b>Ces musées semblent être le même lieu</b><p>Choisissez le nom à garder, puis fusionnez : toutes les fiches seront rangées dans un seul dossier.</p>${mergePanel(c,'d'+ci)}<div class="row"><button class="btn main small" data-mg="${ci}">Fusionner</button><button class="btn small" data-ka="${ci}">Ce sont des musées différents</button></div></div>`).join('')+
-  (ms.length?`<div class="mgrid">${ms.map(g=>{const here=i=>norm(i.vuA||i.musee)===g.key;const ex=mode==='visite'?new Set(g.items.filter(i=>i.expo).map(i=>norm(i.expo))).size:0;const away=mode==='origine'?g.items.filter(i=>!here(i)).length:0;const lent=mode==='visite'?g.items.filter(i=>{const h=homeName(i.conservation);return h&&norm(h)!==g.key}).length:0;const p=g.items.slice(0,3);
+  (ms.length?`<div class="row" style="justify-content:flex-end;margin:-6px 0 12px"><div class="segm sm" id="mlay"><button data-l="liste" aria-pressed="${LS.get('mm.mlay','liste')==='liste'}">Liste</button><button data-l="cartes" aria-pressed="${LS.get('mm.mlay','liste')!=='liste'}">Vignettes</button></div></div><div class="${LS.get('mm.mlay','liste')==='liste'?'mlist':'mgrid'}">${ms.map(g=>{const here=i=>norm(i.vuA||i.musee)===g.key;const ex=mode==='visite'?new Set(g.items.filter(i=>i.expo).map(i=>norm(i.expo))).size:0;const away=mode==='origine'?g.items.filter(i=>!here(i)).length:0;const lent=mode==='visite'?g.items.filter(i=>{const h=homeName(i.conservation);return h&&norm(h)!==g.key}).length:0;const p=g.items.slice(0,3);
+    const meta=`${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}${ex?' · '+plural(ex,'expo')+' temporaire'+(ex>1?'s':''):''}${away?' · '+away+' vue'+(away>1?'s':'')+' ailleurs':''}${lent?' · '+lent+' prêtée'+(lent>1?'s':''):''}`;
+    if(LS.get('mm.mlay','liste')==='liste')return `<button class="mrow" data-m="${esc(g.key)}"><span class="mthumbs" style="background:${wallOf(g)}">${p.map(i=>thumb(i)).join('')}</span><span class="mtx"><b>${esc(g.nom)}</b><small>${meta}</small></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>`;
     return `<button class="mcard" data-m="${esc(g.key)}"><div class="ph" style="background:${wallOf(g)}">${p[0]?thumb(p[0]):''}<div class="stackp">${p[1]?thumb(p[1]):''}${p[2]?thumb(p[2]):''}</div></div><div class="tx"><h3>${esc(g.nom)}</h3><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}${ex?' · '+plural(ex,'expo')+' temporaire'+(ex>1?'s':''):''}${away?' · '+away+' vue'+(away>1?'s':'')+' ailleurs':''}${lent?' · '+lent+' prêtée'+(lent>1?'s':''):''}</div></div></button>`}).join('')}</div>`
   :`<div class="emptyst"><h3>Aucun musée pour l’instant</h3>Photographiez votre première œuvre : son musée apparaîtra ici.</div>`);
   root.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{S.museum=b.dataset.m;renderMusees();scrollTo(0,0)});
   const r=$('#rnd');if(r)r.onclick=()=>openFiche(S.items[Math.floor(Math.random()*S.items.length)].id);
+  root.querySelectorAll('#mlay [data-l]').forEach(b=>b.onclick=()=>{LS.set('mm.mlay',b.dataset.l);renderMusees()});
   root.querySelectorAll('#mtab [data-t]').forEach(b=>b.onclick=()=>{S.mmode=b.dataset.t;LS.set('mm.mtab',S.mmode);renderMusees()});
   dups.forEach((c,ci)=>{
     let pick=0;const box=root.querySelector(`[data-dup="${ci}"]`);
@@ -1246,6 +1287,7 @@ async function refileAll(){
   for(const it of [...S.items]){if(it.pending)continue;const m=folderFor(it);if(norm(m)!==norm(it.musee)){n++;await save({...it,musee:m,ville:folderCity(it,m),loc:locFor(m),enPret:enPret(it)})}}
   fillLists();return n;
 }
+async function hashOld(){for(const it of [...S.items]){if(it.phash!==undefined&&(it.chash!==undefined||!it.cartel))continue;const p={};if(it.phash===undefined)p.phash=it.photo?await phash(it.photo):'';if(it.cartel&&it.chash===undefined)p.chash=await phash(it.cartel);await upd(it.id,p);await new Promise(r=>setTimeout(r,30))}}
 async function migrate2(){
   if(LS.get('mm.mig2',false))return;
   for(const it of [...S.items]){const m=folderFor(it);if(norm(m)!==norm(it.musee)||it.musee!==m)await save({...it,musee:m,ville:folderCity(it,m),loc:locFor(m)||(norm(m)===norm(it.musee)?it.loc:null)})}
@@ -1306,7 +1348,7 @@ addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(TABS.includ
 (async()=>{
   renderCap();
   {const h=location.hash.slice(1);show(TABS.includes(h)?h:'capturer')}
-  try{S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);await migrate();await migrate2();S.items.sort((a,b)=>b.createdAt-a.createdAt)}catch(e){toast('Stockage local indisponible : '+(e&&e.message||e),8000)}
+  try{S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);await migrate();await migrate2();S.items.sort((a,b)=>b.createdAt-a.createdAt);setTimeout(hashOld,1500)}catch(e){toast('Stockage local indisponible : '+(e&&e.message||e),8000)}
   fillLists();show(S.view);
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
   if(cfg.autoLoc){const manualRecent=vis.source==='manuel'&&Date.now()-vis.ts<4*36e5;if(!manualRecent||!vis.musee)detect(true);else $('#locStatus').textContent='Lieu saisi à la main. Touchez « Me localiser » pour le détecter.'}
