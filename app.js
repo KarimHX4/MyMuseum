@@ -38,14 +38,16 @@ const DB={
 const urls=new Map();
 const useRefFor=it=>!!((it.useRef===undefined||it.useRef===null?cfg.preferRef:it.useRef)&&it.refPhoto);
 const dispDims=it=>useRefFor(it)?{pw:it.refpw,ph:it.refph}:{pw:it.pw,ph:it.ph};
-function photoURL(it,which){
-  const b=which==='cartel'?it.cartel:which==='own'?it.photo:which==='ref'?it.refPhoto:(useRefFor(it)?it.refPhoto:it.photo);
-  if(!b)return '';const key=it.id+(which==='cartel'?'|c':b===it.refPhoto?'|r':'|o');
+function photoURL(it,which,small){
+  let b=which==='cartel'?it.cartel:which==='own'?it.photo:which==='ref'?it.refPhoto:(useRefFor(it)?it.refPhoto:it.photo);
+  if(!b)return '';let key=it.id+(which==='cartel'?'|c':b===it.refPhoto?'|r':'|o');
+  // vignette légère (640 px) pour les listes, le mur et la frise : beaucoup moins de mémoire et de décodage
+  if(small){const t=b===it.photo?it.th:b===it.refPhoto?it.rth:null;if(t instanceof Blob){b=t;key+='s'}}
   const c=urls.get(key);if(c&&c.b===b)return c.u;
   if(c)URL.revokeObjectURL(c.u);
   const u=URL.createObjectURL(b);urls.set(key,{b,u});return u;
 }
-function dropURLs(id){for(const k of [id+'|o',id+'|r',id+'|c']){const c=urls.get(k);if(c){URL.revokeObjectURL(c.u);urls.delete(k)}}}
+function dropURLs(id){for(const k of [id+'|o',id+'|r',id+'|c',id+'|os',id+'|rs']){const c=urls.get(k);if(c){URL.revokeObjectURL(c.u);urls.delete(k)}}}
 async function fetchRef(it){
   const file=it.wd&&it.wd.image;if(!file)throw new Error('Pas d’image de référence pour cette œuvre.');
   const j=await getJSON('https://commons.wikimedia.org/w/api.php?'+new URLSearchParams({action:'query',titles:'File:'+file,prop:'imageinfo',iiprop:'url',iiurlwidth:1600,format:'json',origin:'*'}));
@@ -58,7 +60,21 @@ async function fetchRef(it){
 
 /* ---------- état ---------- */
 const S={items:[],view:'capturer',museum:null,ficheId:null,photo:null,cartel:null,ident:null,match:null,results:[],query:'',cap:'idle',err:'',replace:null,q:'',fav:false,busy:''};
-async function save(it){const i=S.items.findIndex(x=>x.id===it.id);if(i<0)S.items.unshift(it);else S.items[i]=it;try{await DB.put(it)}catch(e){toast('Enregistrement impossible : '+(e&&e.message||e))}}
+async function mkThumb(b,max=640){
+  try{const bm=await createImageBitmap(b);const k=Math.min(1,max/Math.max(bm.width,bm.height));
+    if(k>=1&&b.size<160e3){if(bm.close)bm.close();return b}
+    const c=document.createElement('canvas');c.width=Math.max(1,Math.round(bm.width*k));c.height=Math.max(1,Math.round(bm.height*k));
+    const x=c.getContext('2d');x.imageSmoothingQuality='high';x.drawImage(bm,0,0,c.width,c.height);if(bm.close)bm.close();
+    return await new Promise(r=>c.toBlob(r,'image/jpeg',.82))}catch(e){return null}
+}
+async function withThumbs(it,prev){
+  if(!it.photo)delete it.th;else if(!(it.th instanceof Blob)||(prev&&prev.photo!==it.photo&&prev.th===it.th)){const t=await mkThumb(it.photo);if(t)it.th=t;else delete it.th}
+  if(!it.refPhoto)delete it.rth;else if(!(it.rth instanceof Blob)||(prev&&prev.refPhoto!==it.refPhoto&&prev.rth===it.rth)){const t=await mkThumb(it.refPhoto);if(t)it.rth=t;else delete it.rth}
+  return it;
+}
+async function thumbAll(){for(const it of [...S.items]){if((it.photo&&!(it.th instanceof Blob))||(it.refPhoto&&!(it.rth instanceof Blob))){
+  const cur=S.items.find(x=>x.id===it.id);if(!cur)continue;await withThumbs(cur,null);try{await DB.put(cur)}catch(e){}await new Promise(r=>setTimeout(r,30))}}}
+async function save(it){const i=S.items.findIndex(x=>x.id===it.id);await withThumbs(it,i<0?null:S.items[i]);if(i<0)S.items.unshift(it);else S.items[i]=it;try{await DB.put(it)}catch(e){toast('Enregistrement impossible : '+(e&&e.message||e))}}
 function upd(id,patch){const it=S.items.find(x=>x.id===id);if(!it)return;return save({...it,...patch})}
 
 /* ---------- visite en cours ---------- */
@@ -251,6 +267,9 @@ async function wdFull(qid){
 /* ---------- Gemini (offre gratuite, facultatif) ---------- */
 const GEM='https://generativelanguage.googleapis.com/v1beta';
 const PREF=['gemini-3.5-flash','gemini-2.5-flash','gemini-3-flash-preview','gemini-3.1-flash-lite','gemini-2.5-flash-lite'];
+const AIC=new WeakMap();
+// photo envoyée à Gemini : 1024 px suffisent pour reconnaître une œuvre (1400 px pour lire un cartel) ; envoi bien plus léger
+async function forAI(b){if(!b)return b;if(AIC.has(b))return AIC.get(b);const max=b===S.cartel?1400:1024;const t=b.size>200e3?(await mkThumb(b,max))||b:b;AIC.set(b,t);return t}
 const b64=blob=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=()=>rej(r.error);r.readAsDataURL(blob)});
 function gemError(status,body){
   let m='';try{m=JSON.parse(body).error.message||''}catch(x){m=String(body||'').slice(0,200)}
@@ -281,7 +300,7 @@ function gemText(j){
 async function gemini({prompt,images=[],json=false,maxTokens=8192,onText,signal}){
   if(!cfg.gemKey){const e=new Error('Pas de clé Gemini.');e.noKey=true;throw e}
   if(!navigator.onLine)throw new Error('Pas de connexion internet.');
-  const parts=[];for(const b of images)parts.push({inline_data:{mime_type:'image/jpeg',data:await b64(b)}});parts.push({text:prompt});
+  const parts=[];for(const b of images)parts.push({inline_data:{mime_type:'image/jpeg',data:await b64(await forAI(b))}});parts.push({text:prompt});
   const body=JSON.stringify({contents:[{role:'user',parts}],generationConfig:Object.assign({maxOutputTokens:maxTokens,temperature:.4},json?{responseMimeType:'application/json'}:{})});
   const models=[...new Set([cfg.model,...(cfg.models||[]),...PREF].filter(Boolean))].slice(0,6);
   let last,unusable=true;
@@ -345,17 +364,24 @@ Règles : uniquement des faits sûrs ; signale l'incertitude plutôt que d'inven
 }
 
 /* ---------- photo ---------- */
-async function shrink(file,max=1600){
-  const url=URL.createObjectURL(file);
+// Décodage + réduction en une seule passe (décodage hors du fil principal quand c'est possible).
+async function shrinkC(file,max=1600){
+  let src=null,url='';
+  try{src=await createImageBitmap(file,{imageOrientation:'from-image'})}catch(e){src=null}
   try{
-    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('Image illisible (format non pris en charge ?)'));i.src=url});
-    const k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
-    const c=document.createElement('canvas');c.width=Math.round(img.naturalWidth*k);c.height=Math.round(img.naturalHeight*k);
-    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-    return await new Promise(r=>c.toBlob(r,'image/jpeg',.86));
-  }finally{URL.revokeObjectURL(url)}
+    if(!src){url=URL.createObjectURL(file);src=await new Promise((res,rej)=>{const i=new Image();i.decoding='async';i.onload=()=>res(i);i.onerror=()=>rej(new Error('Image illisible (format non pris en charge ?)'));i.src=url})}
+    const W=src.naturalWidth||src.width,H=src.naturalHeight||src.height,k=Math.min(1,max/Math.max(W,H));
+    const c=document.createElement('canvas');c.width=Math.max(1,Math.round(W*k));c.height=Math.max(1,Math.round(H*k));
+    const x=c.getContext('2d');x.imageSmoothingQuality='high';x.drawImage(src,0,0,c.width,c.height);
+    c.naturalWidth=c.width;c.naturalHeight=c.height;
+    // l’encodage JPEG se fait en tâche de fond pendant la détection des bords
+    const blobP=new Promise((r,j)=>c.toBlob(b=>b?r(b):j(new Error('Image illisible')),'image/jpeg',.86));
+    return {blobP,canvas:c};
+  }finally{if(url)URL.revokeObjectURL(url);if(src&&src.close)src.close()}
 }
-const busy=()=>['ident','fiche','ocr'].includes(S.cap);
+async function shrink(file,max=1600){return await (await shrinkC(file,max)).blobP}
+const nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0)));
+const busy=()=>['prep','ident','fiche','ocr'].includes(S.cap);
 let RUN=0,CTL=null;
 function newRun(){if(CTL)CTL.abort();CTL=new AbortController();return ++RUN}
 function cancelRun(){RUN++;if(CTL){CTL.abort();CTL=null}}
@@ -396,9 +422,11 @@ function renderDup(){
 async function takeFile(file){
   if(!file||busy())return;
   try{
-    const blob=await shrink(file);
     const keepReplace=S.replace,keepCartel=S.cartel;resetCap();S.replace=keepReplace;if(keepCartel)setCartel(keepCartel);
-    let blob2=blob;if(cfg.autoCrop!==false)blob2=await autoCropOffer(blob);
+    S.cap='prep';S.prepCartel=false;renderCap();await nextFrame();
+    let {blobP,canvas}=await shrinkC(file);
+    let blob2=cfg.autoCrop!==false?await autoCropOffer(blobP,canvas):await blobP;canvas=null;
+    S.cap='idle';
     S.photo={blob:blob2,url:URL.createObjectURL(blob2)};S.photoHash='';
     startIdentify();
     phash(blob2).then(h=>{if(S.photo&&S.photo.blob===blob2){S.photoHash=h;renderDup()}});
@@ -408,7 +436,7 @@ function startIdentify(){if(hasAI())identify();else{S.cap='find';renderCap();set
 $('#inCam').addEventListener('change',e=>{takeFile(e.target.files[0]);e.target.value=''});
 $('#inImp').addEventListener('change',e=>{takeFile(e.target.files[0]);e.target.value=''});
 ['#inCartel0','#inCartel1'].forEach(id=>$(id).addEventListener('change',async e=>{const file=e.target.files[0];e.target.value='';if(!file||busy())return;
-  try{const b=await shrink(file,2000);const keep=S.replace;resetCap();S.replace=keep;setCartel(b);if(hasAI())identify();else ocrCartel()}catch(er){S.err=er.message;S.cap='error';renderCap()}}));
+  try{const keep=S.replace;resetCap();S.replace=keep;S.cap='prep';S.prepCartel=true;renderCap();await nextFrame();const b=await shrink(file,2000);S.cap='idle';setCartel(b);if(hasAI())identify();else ocrCartel()}catch(er){S.err=er.message;S.cap='error';renderCap()}}));
 const cv=$('#canvas');
 cv.addEventListener('dragover',e=>{e.preventDefault();cv.classList.add('drag')});
 cv.addEventListener('dragleave',()=>cv.classList.remove('drag'));
@@ -510,16 +538,19 @@ function renderLink(){
 }
 function renderCap(){
   const has=!!(S.photo||S.cartel);
-  $('#empty').hidden=has;
+  $('#empty').hidden=has||S.cap==='prep';
   setFrameClass($('#capFrame'),cfg.frame==='auto'?'dore':cfg.frame);
-  cv.querySelectorAll(':scope>img,.scan').forEach(n=>n.remove());
+  cv.querySelectorAll(':scope>img,.scan,.prepbox').forEach(n=>n.remove());
+  if(S.cap==='prep'){const pb=document.createElement('div');pb.className='prepbox';pb.innerHTML='<span class="spin big"></span><b>Préparation '+(S.prepCartel?'du cartel':'de la photo')+'…</b>';cv.appendChild(pb)}
   if(has){const i=new Image();i.src=S.photo?S.photo.url:S.cartelUrl;i.alt=S.photo?'Votre photo':'Le cartel';cv.appendChild(i)}
-  if(busy()){const sc=document.createElement('div');sc.className='scan';cv.appendChild(sc)}
+  if(busy()&&(has||S.cap==='prep')){const sc=document.createElement('div');sc.className='scan';cv.appendChild(sc)}
   const side=$('#side');
   const dupZone=S.cap==='idle'?'':'<div id="dupw"></div>';
   const cartelBtn=`<label class="btn small"><input type="file" accept="image/*" capture="environment" class="cartelIn" hidden>${S.cartel?'Reprendre le cartel':'Photographier le cartel'}</label><label class="btn small"><input type="file" accept="image/*" class="cartelIn" hidden>Importer un cartel</label>`;
   const again=`<div class="row" style="margin-top:14px">${has&&!busy()?'<button class="btn small" id="crop">Recadrer</button>':''}<label class="btn small"><input type="file" accept="image/*" capture="environment" class="re" hidden>${S.photo?'Reprendre la photo':'Photographier aussi l’œuvre'}</label>${has?'<button class="btn small" id="later">Identifier plus tard</button><button class="btn small" id="cancel">Annuler</button>':''}</div>`;
-  if(S.cap==='idle'){
+  if(S.cap==='prep'){
+    side.innerHTML=`<h2>Préparation de la photo…</h2><p class="lead">${S.prepCartel?'Le cartel est mis au bon format pour être lu.':cfg.autoCrop!==false?'L’image est réduite et les bords de l’œuvre sont repérés pour vous proposer un recadrage.':'L’image est réduite pour être analysée plus vite.'}</p>`;
+  }else if(S.cap==='idle'){
     side.innerHTML=`<h2>Photographiez, on s’occupe du reste</h2><p class="lead">${hasAI()?'Gemini reconnaît l’œuvre, la fiche est complétée avec Wikipédia et Wikidata,':'Retrouvez l’œuvre dans les collections du musée (Wikidata) ou lisez son cartel : la fiche est faite avec Wikipédia,'} puis rangée dans le dossier du musée, et de l’exposition si elle est temporaire.</p>
     ${hasAI()?'<label class="f">Un indice pour aider (facultatif)<input id="hint" placeholder="Texte du cartel, salle, nom de l’artiste…"></label>':'<p class="note">Astuce : ajoutez une clé Gemini gratuite dans les Réglages pour que l’app reconnaisse l’œuvre sur la photo.</p>'}`;
     const h=$('#hint');if(h){h.value=LS.get('mm.hint','');h.addEventListener('input',e=>LS.set('mm.hint',e.target.value))}
@@ -659,7 +690,7 @@ async function create(){
 
 const backBtn=(label)=>`<button class="back" id="bk"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>${label}</span></button>`;
 /* ---------- regroupements ---------- */
-const thumb=it=>{const u=photoURL(it);return u?`<img src="${esc(u)}" alt="" loading="lazy">`:''};
+const thumb=(it,small=true)=>{const u=photoURL(it,undefined,small);return u?`<img src="${esc(u)}" alt="" loading="lazy" decoding="async">`:''};
 /* ---------- musées en double : détection et fusion ---------- */
 const M_STOP=new Set('the of and le la les l du de des d et a an en in di del della dei degli van von der het y'.split(' '));
 const M_TYPE=new Set('museum musee museo musees museums musea'.split(' '));
@@ -817,7 +848,7 @@ function renderFiche(){
   const noAI=!f.accroche&&!f.contexte;
   root.innerHTML=`${backBtn(esc(cap1(it.vuA||it.musee)))}
   ${it.pending?`<div class="pend"><b>Œuvre à identifier.</b> La photo et le lieu sont gardés ; identifiez-la quand vous aurez du réseau.<button class="btn main small" id="idn">Identifier maintenant</button></div>`:''}
-  <div class="fiche"><div class="left">${frameWrap(it,thumb(it)?(dimsOf(it)&&isFlat(it)?`<div class="ci bigci" style="${ciStyle(it)};--r:${ratioOf(it).toFixed(3)}">${thumb(it)}</div>`:thumb(it)):'<div class="nophoto">Pas de photo</div>','bigfr')}
+  <div class="fiche"><div class="left">${frameWrap(it,thumb(it,false)?(dimsOf(it)&&isFlat(it)?`<div class="ci bigci" style="${ciStyle(it)};--r:${ratioOf(it).toFixed(3)}">${thumb(it,false)}</div>`:thumb(it,false)):'<div class="nophoto">Pas de photo</div>','bigfr')}
     ${useRefFor(it)&&wd&&wd.image?`<p class="src" style="margin-top:8px">Image de référence · <a href="https://commons.wikimedia.org/wiki/File:${encodeURIComponent(wd.image)}" target="_blank" rel="noopener">Wikimedia Commons</a></p>`:''}
     <div class="frow"><button class="btn small" id="frBtn" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="1"/><rect x="7" y="7" width="10" height="10"/></svg>Cadre · ${esc(frameLabel(frameOf(it)))}</button>${wd&&wd.image&&it.photo?`<div class="segm sm" id="srcSeg"><button data-s="own" aria-pressed="${!useRefFor(it)}">Ma photo</button><button data-s="ref" aria-pressed="${useRefFor(it)}">Image de référence</button></div>`:''}</div>
     <div class="pick" id="fpick" hidden>${framePicker(it.frame||'',autoFrameFor(it))}</div>
@@ -967,7 +998,7 @@ const blobToDataURL=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload
 async function exportBackup(){
   if(!S.items.length){toast('Rien à exporter pour le moment');return}
   toast('Préparation de la sauvegarde…');
-  const items=[];for(const it of S.items){const o={...it};if(it.photo)o.photo=await blobToDataURL(it.photo);if(it.refPhoto)o.refPhoto=await blobToDataURL(it.refPhoto);if(it.cartel)o.cartel=await blobToDataURL(it.cartel);items.push(o)}
+  const items=[];for(const it of S.items){const o={...it};delete o.th;delete o.rth;if(it.photo)o.photo=await blobToDataURL(it.photo);if(it.refPhoto)o.refPhoto=await blobToDataURL(it.refPhoto);if(it.cartel)o.cartel=await blobToDataURL(it.cartel);items.push(o)}
   const json=JSON.stringify({app:'MyMuseum',version:2,exported:new Date().toISOString(),items});
   const name='MyMuseum-sauvegarde-'+today()+'.json';
   try{
@@ -987,8 +1018,8 @@ $('#inBackup').addEventListener('change',async e=>{
     const data=JSON.parse(await file.text());
     if(!data||data.app!=='MyMuseum'||!Array.isArray(data.items))throw new Error('ce fichier n’est pas une sauvegarde MyMuseum');
     let n=0;
-    for(const o of data.items){if(!o||!o.id)continue;const it={...o};if(typeof o.photo==='string'&&o.photo.startsWith('data:image/'))it.photo=await (await fetch(o.photo)).blob();else delete it.photo;if(typeof o.refPhoto==='string'&&o.refPhoto.startsWith('data:image/'))it.refPhoto=await (await fetch(o.refPhoto)).blob();else delete it.refPhoto;if(typeof o.cartel==='string'&&o.cartel.startsWith('data:image/'))it.cartel=await (await fetch(o.cartel)).blob();else delete it.cartel;await DB.put(it);n++}
-    S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);fillLists();
+    for(const o of data.items){if(!o||!o.id)continue;const it={...o};delete it.th;delete it.rth;if(typeof o.photo==='string'&&o.photo.startsWith('data:image/'))it.photo=await (await fetch(o.photo)).blob();else delete it.photo;if(typeof o.refPhoto==='string'&&o.refPhoto.startsWith('data:image/'))it.refPhoto=await (await fetch(o.refPhoto)).blob();else delete it.refPhoto;if(typeof o.cartel==='string'&&o.cartel.startsWith('data:image/'))it.cartel=await (await fetch(o.cartel)).blob();else delete it.cartel;await DB.put(it);n++}
+    S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);fillLists();setTimeout(thumbAll,500);
     toast(plural(n,'œuvre')+' importée'+(n>1?'s':''));if(S.view==='reglages')renderReglages();
   }catch(er){toast('Import impossible : '+er.message,6000)}
 });
@@ -1071,7 +1102,7 @@ function wallHTML(items,wc){
   const works=d.map(x=>{const wp=x.w*s,hp=x.h*s,u=Math.max(.16,Math.min(.85,Math.min(wp,hp)/300)),bottom=(x.c-x.h/2)*s;
     const fw=wp+2*Math.round(30*u),below=bottom>=96,cw=below?Math.round(Math.max(130,Math.min(210,fw))):128,mr=below?Math.max(44,cw-fw+36):cw+30;
     const it=x.it,info=[it.technique,dimsOf(it)?fmtN(x.h)+' × '+fmtN(x.w)+' cm':''].filter(Boolean).join(' · ');
-    const img=thumb(it).replace('<img ',`<img style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px" `)||`<div style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px;background:#2a2326"></div>`;
+    const img=thumb(it,Math.max(wp,hp)<=260).replace('<img ',`<img style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px" `)||`<div style="width:${wp.toFixed(1)}px;height:${hp.toFixed(1)}px;background:#2a2326"></div>`;
     return `<button class="hang" data-o="${esc(it.id)}" style="margin-bottom:${bottom.toFixed(1)}px;margin-right:${Math.round(mr)}px">${frameWrap(it,img,'',`--u:${u.toFixed(2)}`)}<span class="cartel2 ${below?'b':'r'}" style="width:${cw}px"><b>${esc(it.artiste||'Artiste inconnu')}</b><span class="t"><i>${esc(it.titre)}</i>${it.date?', '+esc(it.date):''}</span>${info?`<small>${esc(info)}</small>`:''}${x.est?'<em>taille estimée</em>':''}</span></button>`}).join('');
   return `<div class="wallsc" style="--wc:${wc}"><div class="wallin">${person}${works}</div></div>`;
 }
@@ -1139,9 +1170,8 @@ const C={img:null,url:'',q:null,drag:-1,res:null,out:null,ds:1,k:1};
 function openCropper(blob,opt={}){
   return new Promise(async res=>{
     if(!blob)return res(null);
-    const url=URL.createObjectURL(blob);
-    const img=await new Promise(ok=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=url});
-    if(!img){URL.revokeObjectURL(url);return res(null)}
+    let url='',img=opt.source||null;
+    if(!img){url=URL.createObjectURL(blob);img=await new Promise(ok=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=url});if(!img){URL.revokeObjectURL(url);return res(null)}}
     const W=img.naturalWidth,H=img.naturalHeight,m=.06;
     Object.assign(C,{img,url,res,out:null,drag:-1,q:opt.quad||[[W*m,H*m],[W*(1-m),H*m],[W*(1-m),H*(1-m)],[W*m,H*(1-m)]]});
     $('#cTitle').textContent=opt.propose?'Recadrage automatique proposé : ajustez les coins si besoin':'Placez les 4 coins sur les bords de l’œuvre';
@@ -1214,17 +1244,23 @@ function detectQuad(img){
   const s=Math.min(1,320/Math.max(NW,NH)),w=Math.max(8,Math.round(NW*s)),h=Math.max(8,Math.round(NH*s)),sx=w/NW,sy=h/NH;
   const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,w,h);
   const d=x.getImageData(0,0,w,h).data,n=w*h,g=new Float32Array(n),t=new Float32Array(n),gx=new Float32Array(n),gy=new Float32Array(n),mg=new Float32Array(n);
-  const K=[1,4,6,4,1],cl=(v,m)=>v<0?0:v>m?m:v;
-  // gradient couleur : pour chaque pixel, le canal (R, V ou B) qui varie le plus
+  // gradient couleur : pour chaque pixel, le canal (R, V ou B) qui varie le plus (flou binomial 5 points, puis Sobel)
   for(let ch=0;ch<3;ch++){
-    for(let i=0;i<n;i++)g[i]=d[i*4+ch];
-    for(let y=0;y<h;y++)for(let X=0;X<w;X++){let a=0;for(let k=-2;k<=2;k++)a+=K[k+2]*g[y*w+cl(X+k,w-1)];t[y*w+X]=a/16}
-    for(let y=0;y<h;y++)for(let X=0;X<w;X++){let a=0;for(let k=-2;k<=2;k++)a+=K[k+2]*t[cl(y+k,h-1)*w+X];g[y*w+X]=a/16}
+    for(let i=0,j=ch;i<n;i++,j+=4)g[i]=d[j];
+    for(let y=0;y<h;y++){const o=y*w;
+      for(let X=0;X<w;X++){const a=X<2?o:o+X-2,b=X<1?o:o+X-1,e=X>w-2?o+w-1:o+X+1,f=X>w-3?o+w-1:o+X+2,i=o+X;t[i]=(g[a]+g[f]+4*(g[b]+g[e])+6*g[i])*.0625}}
+    for(let y=0;y<h;y++){const a=(y<2?0:y-2)*w,b=(y<1?0:y-1)*w,e=(y>h-2?h-1:y+1)*w,f=(y>h-3?h-1:y+2)*w,o=y*w;
+      for(let X=0;X<w;X++)g[o+X]=(t[a+X]+t[f+X]+4*(t[b+X]+t[e+X])+6*t[o+X])*.0625}
     for(let y=1;y<h-1;y++)for(let X=1;X<w-1;X++){const i=y*w+X;
       const a=g[i-w-1],b=g[i-w],cc=g[i-w+1],dd=g[i-1],f=g[i+1],G=g[i+w-1],H=g[i+w],I=g[i+w+1];
-      const vx=(cc+2*f+I)-(a+2*dd+G),vy=(G+2*H+I)-(a+2*b+cc),m=Math.hypot(vx,vy);if(m>mg[i]){gx[i]=vx;gy[i]=vy;mg[i]=m}}
+      const vx=(cc+2*f+I)-(a+2*dd+G),vy=(G+2*H+I)-(a+2*b+cc),m=vx*vx+vy*vy;if(m>mg[i]){gx[i]=vx;gy[i]=vy;mg[i]=m}}
   }
-  const srt=Float32Array.from(mg).sort(),thr=Math.max(12,srt[Math.floor(n*.88)]);
+  for(let i=0;i<n;i++)mg[i]=Math.sqrt(mg[i]);
+  // seuil = 88e centile de l’intensité des contours (histogramme plutôt qu’un tri)
+  let mmax=1;for(let i=0;i<n;i++)if(mg[i]>mmax)mmax=mg[i];
+  const HB=1024,hist=new Uint32Array(HB);for(let i=0;i<n;i++)hist[Math.min(HB-1,(mg[i]/mmax*HB)|0)]++;
+  let acc0=0,bin=0;for(;bin<HB;bin++){acc0+=hist[bin];if(acc0>=n*.88)break}
+  const thr=Math.max(12,(bin+.5)/HB*mmax);
   const E=new Uint8Array(n),Ew=new Uint8Array(n),lo=Math.max(6,thr*.35);let ne=0;
   for(let y=1;y<h-1;y++)for(let X=1;X<w-1;X++){const i=y*w+X,m=mg[i];if(m<lo)continue;
     let a=Math.atan2(gy[i],gx[i])*180/Math.PI;if(a<0)a+=180;let o1,o2;
@@ -1258,8 +1294,8 @@ function detectQuad(img){
       let sg=0,cv=true;for(let m=0;m<4;m++){const a=q[m],b=q[(m+1)%4],e=q[(m+2)%4],cr=(b[0]-a[0])*(e[1]-b[1])-(b[1]-a[1])*(e[0]-b[0]);if(!sg)sg=Math.sign(cr);else if(Math.sign(cr)!==sg){cv=false;break}}
       if(!cv)continue;
       let ar=0;for(let m=0;m<4;m++){const a=q[m],b=q[(m+1)%4];ar+=a[0]*b[1]-b[0]*a[1]}ar=Math.abs(ar)/2/(w*h);if(ar<.08||ar>.985)continue;
-      const ss=[0,1,2,3].map(m=>sup(q[m],q[(m+1)%4])),mn=Math.min(...ss);if(mn<.35)continue;
-      const mean=(ss[0]+ss[1]+ss[2]+ss[3])/4;cands.push({q,ar,mn,sc:mean*(.55+.45*Math.sqrt(ar))*(.7+.3*mn)})}}
+      let mn=1,sum=0;for(let m=0;m<4;m++){const v=sup(q[m],q[(m+1)%4]);if(v<.35){mn=0;break}sum+=v;if(v<mn)mn=v}if(mn<.35)continue;
+      const mean=sum/4;cands.push({q,ar,mn,sc:mean*(.55+.45*Math.sqrt(ar))*(.7+.3*mn)})}}
   if(!cands.length)return null;
   cands.sort((a,b)=>b.sc-a.sc);let best=cands[0];
   // si l’œuvre a un cadre, on préfère la surface peinte : le quadrilatère fort le plus intérieur
@@ -1284,15 +1320,15 @@ function refineQuad(img,q,rad){
   const NW=img.naturalWidth||img.width,NH=img.naturalHeight||img.height,s=Math.min(1,1200/Math.max(NW,NH)),w=Math.round(NW*s),h=Math.round(NH*s);
   const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,w,h);
   const d=x.getImageData(0,0,w,h).data;
-  const at=(X,Y)=>{X=Math.max(0,Math.min(w-1.001,X));Y=Math.max(0,Math.min(h-1.001,Y));const x0=X|0,y0=Y|0,fx=X-x0,fy=Y-y0,i=(y0*w+x0)*4,j=i+w*4,o=[0,0,0];
-    for(let c=0;c<3;c++)o[c]=(d[i+c]*(1-fx)+d[i+4+c]*fx)*(1-fy)+(d[j+c]*(1-fx)+d[j+4+c]*fx)*fy;return o};
-  const add=(a,b,c)=>[a[0]+b[0]+c[0],a[1]+b[1]+c[1],a[2]+b[2]+c[2]],dif=(a,b)=>Math.max(Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]),Math.abs(a[2]-b[2]));
-  const Q=q.map(([X,Y])=>[X*s,Y*s]),R=Math.max(3,rad*s),lines=[];
+  const Q=q.map(([X,Y])=>[X*s,Y*s]),R=Math.max(3,rad*s),lines=[],NP=Math.floor((2*R+2)/.5)+1,prof=new Float32Array(NP*3);
+  // profil de couleur le long de la normale (moyenne sur 3 px le long du bord), puis variation la plus forte
+  const accum=(X,Y,k)=>{X=X<0?0:X>w-1.001?w-1.001:X;Y=Y<0?0:Y>h-1.001?h-1.001:Y;const x0=X|0,y0=Y|0,fx=X-x0,fy=Y-y0,i=(y0*w+x0)*4,j=i+w*4,
+    a=(1-fx)*(1-fy),b=fx*(1-fy),c=(1-fx)*fy,e=fx*fy;prof[k]+=d[i]*a+d[i+4]*b+d[j]*c+d[j+4]*e;prof[k+1]+=d[i+1]*a+d[i+5]*b+d[j+1]*c+d[j+5]*e;prof[k+2]+=d[i+2]*a+d[i+6]*b+d[j+2]*c+d[j+6]*e};
   for(let m=0;m<4;m++){
     const P=Q[m],T=Q[(m+1)%4],L=Math.hypot(T[0]-P[0],T[1]-P[1]),ux=(T[0]-P[0])/L,uy=(T[1]-P[1])/L,nx=-uy,ny=ux,pts=[];
-    for(let k=1;k<40;k++){const t=.06+.88*k/40,px=P[0]+(T[0]-P[0])*t,py=P[1]+(T[1]-P[1])*t;let bo=0,bv=-1;
-      for(let o=-R;o<=R;o+=.5){const A=px+nx*(o+1),B=py+ny*(o+1),A2=px+nx*(o-1),B2=py+ny*(o-1);
-        const v=dif(add(at(A,B),at(A+ux,B+uy),at(A-ux,B-uy)),add(at(A2,B2),at(A2+ux,B2+uy),at(A2-ux,B2-uy)));if(v>bv){bv=v;bo=o}}
+    for(let k=1;k<40;k++){const t=.06+.88*k/40,px=P[0]+(T[0]-P[0])*t,py=P[1]+(T[1]-P[1])*t;prof.fill(0);
+      for(let a=0;a<NP;a++){const o=-R-1+a*.5,X=px+nx*o,Y=py+ny*o;accum(X,Y,a*3);accum(X+ux,Y+uy,a*3);accum(X-ux,Y-uy,a*3)}
+      let bo=0,bv=-1;for(let a=2;a<NP-2;a++){const p1=(a+2)*3,p0=(a-2)*3,v=Math.max(Math.abs(prof[p1]-prof[p0]),Math.abs(prof[p1+1]-prof[p0+1]),Math.abs(prof[p1+2]-prof[p0+2]));if(v>bv){bv=v;bo=-R-1+a*.5}}
       if(bv>12)pts.push([px+nx*bo,py+ny*bo])}
     if(pts.length<10){lines.push(null);continue}
     const fit=ps=>{const mx=ps.reduce((a,p)=>a+p[0],0)/ps.length,my=ps.reduce((a,p)=>a+p[1],0)/ps.length;let sxx=0,sxy=0,syy=0;ps.forEach(([X,Y])=>{sxx+=(X-mx)**2;sxy+=(X-mx)*(Y-my);syy+=(Y-my)**2});
@@ -1303,16 +1339,17 @@ function refineQuad(img,q,rad){
   const ix=(A,B)=>{const det=A.dx*B.dy-A.dy*B.dx;if(Math.abs(det)<1e-6)return null;const t=((B.mx-A.mx)*B.dy-(B.my-A.my)*B.dx)/det;return [A.mx+A.dx*t,A.my+A.dy*t]};
   return q.map((p0,m)=>{const A=lines[(m+3)%4],B=lines[m];if(!A||!B)return p0;const p=ix(A,B);if(!p)return p0;const r=[p[0]/s,p[1]/s];return Math.hypot(r[0]-p0[0],r[1]-p0[1])<=rad*2.5?r:p0});
 }
-window.__mm=Object.assign(window.__mm||{},{detectQuad});
-async function autoCropOffer(blob){
-  let img=null;const url=URL.createObjectURL(blob);
-  try{img=await new Promise(ok=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=url})}finally{if(!img)URL.revokeObjectURL(url)}
-  if(!img)return blob;
+window.__mm=Object.assign(window.__mm||{},{detectQuad,refineQuad,shrinkC});
+async function autoCropOffer(blobP,canvas){
+  let img=canvas||null,url='';const blob=canvas?null:await blobP;
+  if(!img){url=URL.createObjectURL(blob);img=await new Promise(ok=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=url})}
+  if(!img){URL.revokeObjectURL(url);return blob}
+  await nextFrame();
   let q=null;try{q=detectQuad(img)}catch(e){}
-  URL.revokeObjectURL(url);
-  if(!q){toast('Bords de l’œuvre non détectés : photo gardée telle quelle (« Recadrer » reste possible).');return blob}
-  const out=await openCropper(blob,{quad:q,propose:true});
-  return out||blob;
+  if(url)URL.revokeObjectURL(url);
+  if(!q){toast('Bords de l’œuvre non détectés : photo gardée telle quelle (« Recadrer » reste possible).');return await blobP}
+  const out=await openCropper(blob||true,{quad:q,propose:true,source:canvas});
+  return out||await blobP;
 }
 
 /* ---------- explorer : carte, frise, statistiques ---------- */
@@ -1352,9 +1389,14 @@ async function renderMap(){
   setTimeout(()=>mapObj&&mapObj.invalidateSize(),120);
   const map=mapObj,pts=[],miss=[],mm=LS.get('mm.mapmode','visite');
   const modes=mm==='tous'?['origine','visite']:[mm];
+  // coordonnées cherchées en parallèle (4 à la fois) plutôt qu’une par une
+  const grp=new Map();for(const mode of modes)for(const g of museums(mode))if(g.key!=='_'){const o=grp.get(g.key);if(o)o.items=[...o.items,...g.items];else grp.set(g.key,{...g})}
+  const keys=[...grp.values()],co=new Map();let ix=0;
+  const work=async()=>{while(ix<keys.length){const g=keys[ix++];let c=null;try{c=await museumCoords(g)}catch(e){}co.set(g.key,c)}};
+  await Promise.all([work(),work(),work(),work()]);if(mapObj!==map)return;
   for(const mode of modes)for(const g of museums(mode)){
     if(g.key==='_')continue;
-    const c=await museumCoords(g);if(mapObj!==map)return;
+    const c=co.get(g.key);
     if(!c){miss.push(g.nom);continue}
     const box=document.createElement('div'),k=document.createElement('small'),t=document.createElement('b'),p=document.createElement('div'),bt=document.createElement('button');
     k.textContent=mode==='visite'?'Musée visité':'Musée d’origine';k.style.cssText='display:block;color:#8a7f78';
@@ -1463,7 +1505,7 @@ addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(TABS.includ
 (async()=>{
   renderCap();
   {const h=location.hash.slice(1);show(TABS.includes(h)?h:'capturer')}
-  try{S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);await migrate();await migrate2();S.items.sort((a,b)=>b.createdAt-a.createdAt);setTimeout(hashOld,1500)}catch(e){toast('Stockage local indisponible : '+(e&&e.message||e),8000)}
+  try{S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);await migrate();await migrate2();S.items.sort((a,b)=>b.createdAt-a.createdAt);setTimeout(async()=>{await thumbAll();hashOld()},1200)}catch(e){toast('Stockage local indisponible : '+(e&&e.message||e),8000)}
   fillLists();show(S.view);
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
   if(cfg.autoLoc){const manualRecent=vis.source==='manuel'&&Date.now()-vis.ts<4*36e5;if(!manualRecent||!vis.musee)detect(true);else $('#locStatus').textContent='Lieu saisi à la main. Touchez « Me localiser » pour le détecter.'}

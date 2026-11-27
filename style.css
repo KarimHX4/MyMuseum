@@ -79,6 +79,8 @@ textarea{resize:vertical;min-height:90px}
 .canvas .empty svg{width:64px;height:64px;opacity:.8}
 .dropnote{font-size:14px;opacity:.75}
 .canvas.drag{outline:3px dashed var(--brass2);outline-offset:-10px}
+.prepbox{display:grid;gap:14px;justify-items:center;font-size:17px;padding:20px}
+.spin.big{width:34px;height:34px;border-width:3px;margin:0}
 .scan{position:absolute;inset:0;background:linear-gradient(180deg,transparent 0 40%,rgb(212 169 92/.35) 50%,transparent 60% 100%);background-size:100% 220%;animation:scan 2.2s linear infinite}
 @keyframes scan{from{background-position:0 120%}to{background-position:0 -100%}}
 @media(prefers-reduced-motion:reduce){.scan{animation:none;background:rgb(212 169 92/.12)}.spin{animation:none}}
