@@ -556,7 +556,7 @@ const cap1=s=>s?s[0].toUpperCase()+s.slice(1):'';
 function homeName(s){const parts=String(s||'').split(/\s*[,;]\s*/).map(x=>x.trim()).filter(Boolean);if(!parts.length)return '';return cap1(parts.find(x=>MUS_RE.test(x)&&!DEPT_RE.test(x))||parts.find(x=>!DEPT_RE.test(x))||parts[0])}
 function homeCityOf(s){return String(s||'').split(/\s*,\s*/).slice(1).find(x=>x&&!MUS_RE.test(x))||''}
 function homeFromWD(wd){if(!wd)return '';const c=[...String(wd.collection||'').split(', '),...String(wd.lieu||'').split(', ')].filter(Boolean);return cap1(c.find(x=>MUS_RE.test(x)&&!DEPT_RE.test(x))||String(wd.lieu||'').split(', ')[0]||c[0]||'')}
-function folderFor(it){const h=homeName(it.conservation),v=it.vuA||'';return cfg.rangement==='visite'?(v||h||'Lieu non précisé'):(h||v||'Lieu non précisé')}
+function folderFor(it){return it.vuA||homeName(it.conservation)||'Lieu non précisé'}
 function folderCity(it,folder){return norm(folder)===norm(it.vuA)?it.vuVille||'':it.homeVille||homeCityOf(it.conservation)||''}
 function syncVu(){
   const cf=S.cf,cons=$('#cCons'),vu=$('#cVu'),vi=$('#cVille');if(!cf||!cons||!vu)return;
@@ -565,8 +565,8 @@ function syncVu(){
   if(!cf.villeDirty)vi.value=!h||norm(h)===norm(cf.visitM)?cf.visitV:norm(h)===norm(cf.homeM)?cf.homeV:'';
   updDest();
 }
-function updDest(){const e=$('#cDest');if(!e)return;const f={conservation:$('#cCons').value.trim(),vuA:$('#cVu').value.trim()};const d=folderFor(f);
-  e.innerHTML=`Rangée dans le dossier <b>${esc(d)}</b>${!f.conservation&&cfg.rangement!=='visite'?' (ou dans le musée de l’œuvre, s’il est trouvé dans Wikidata)':''}.`}
+function updDest(){const e=$('#cDest');if(!e)return;const h=$('#cCons').value.trim(),v=$('#cVu').value.trim()||h||'Lieu non précisé';
+  e.innerHTML=`Apparaîtra dans <b>Musées visités › ${esc(v)}</b>${h&&norm(h)!==norm(v)?` et dans <b>Musées d’origine › ${esc(h)}</b>`:''}.`}
 const enPret=f=>{const h=homeName(f.conservation);return !!(f.expo&&h&&norm(h)!==norm(f.vuA||f.musee))};
 function backToForm(f){
   S.cap='confirm';renderCap();if(!f)return;
@@ -643,8 +643,8 @@ function sameMuseum(a,b){
 }
 const pairKey=(a,b)=>[a,b].sort().join('|');
 const keptApart=(a,b)=>LS.get('mm.nomerge',[]).includes(pairKey(a,b));
-function dupClusters(){
-  const ms=museums().filter(g=>g.key!=='_'&&norm(g.nom)!=='lieu non precise'),par=ms.map((_,i)=>i);
+function dupClusters(mode){
+  const ms=museums(mode).filter(g=>g.key!=='_'&&norm(g.nom)!=='lieu non precise'),par=ms.map((_,i)=>i);
   const find=i=>par[i]===i?i:(par[i]=find(par[i]));
   for(let i=0;i<ms.length;i++)for(let j=i+1;j<ms.length;j++)if(!keptApart(ms[i].key,ms[j].key)&&sameMuseum(ms[i].nom,ms[j].nom))par[find(i)]=find(j);
   const cl=new Map();ms.forEach((g,i)=>{const r=find(i);if(!cl.has(r))cl.set(r,[]);cl.get(r).push(g)});
@@ -652,7 +652,7 @@ function dupClusters(){
 }
 function canonMuseum(name){
   if(!name||norm(name)==='lieu non precise')return name;
-  const g=museums().find(g=>norm(g.nom)!==norm(name)&&!keptApart(g.key,norm(name))&&sameMuseum(g.nom,name));
+  const g=[...museums('visite'),...museums('origine')].find(g=>g.key!=='_'&&norm(g.nom)!==norm(name)&&!keptApart(g.key,norm(name))&&sameMuseum(g.nom,name));
   return g?g.nom:name;
 }
 async function mergeMuseums(keys,name){
@@ -672,11 +672,18 @@ async function mergeMuseums(keys,name){
 function mergePanel(group,idPrefix){
   return `<div class="pick" id="${idPrefix}n">${group.map((g,i)=>`<button data-n="${i}" aria-pressed="${i===0}">${esc(g.nom)}<small>${plural(g.items.length,'œuvre')}</small></button>`).join('')}</div>`;
 }
-function museums(){
+const MODES={visite:['Musées visités','Où vous avez vu les œuvres'],origine:['Musées d’origine','Où les œuvres sont conservées']};
+function museumOf(it,mode){return mode==='origine'?homeName(it.conservation):(it.vuA||it.musee||'')}
+function museums(mode){
+  mode=mode==='origine'?'origine':'visite';
   const m=new Map();
-  for(const it of S.items){const k=norm(it.musee)||'_';if(!m.has(k))m.set(k,{key:k,nom:cap1(it.musee)||'Lieu non précisé',ville:it.ville||'',items:[]});const g=m.get(k);g.items.push(it);if(!g.ville&&it.ville)g.ville=it.ville}
+  for(const it of S.items){
+    const name=museumOf(it,mode),k=norm(name)||'_';
+    const ville=mode==='origine'?(it.homeVille||homeCityOf(it.conservation)||(norm(it.vuA)===k?it.vuVille||'':'')):(it.vuVille||it.ville||'');
+    if(!m.has(k))m.set(k,{key:k,mode,nom:cap1(name)||(mode==='origine'?'Origine inconnue':'Lieu non précisé'),ville,items:[]});
+    const g=m.get(k);g.items.push(it);if(!g.ville&&ville)g.ville=ville}
   for(const g of m.values())g.items.sort((a,b)=>b.createdAt-a.createdAt);
-  return [...m.values()].sort((a,b)=>b.items[0].createdAt-a.items[0].createdAt);
+  return [...m.values()].sort((a,b)=>(a.key==='_')-(b.key==='_')||b.items[0].createdAt-a.items[0].createdAt);
 }
 function ocard(it){
   return `<button class="ocard" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci" style="${ciStyle(it)}">${thumb(it)}</div>`)}<h3>${esc(it.titre)}</h3><div class="meta">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>${it.pending?'<span class="tag l">À identifier</span> ':''}${it.favori?'<span class="tag">Coup de cœur</span> ':''}${it.enPret?'<span class="tag l">Prêt</span>':''}</button>`;
@@ -686,42 +693,46 @@ function bindCards(root){root.querySelectorAll('[data-o]').forEach(b=>b.onclick=
 /* ---------- vue musées ---------- */
 function renderMusees(){
   const root=$('#v-musees');
+  const mode=S.mmode=S.mmode||LS.get('mm.mtab','visite');
   if(S.museum){
-    const g=museums().find(x=>x.key===S.museum);
+    const g=museums(mode).find(x=>x.key===S.museum);
     if(!g){S.museum=null;return renderMusees()}
-    const wc=wallOf(g),tx=inkOn(wc),mode=LS.get('mm.mview','mur');
+    const wc=wallOf(g),tx=inkOn(wc),vmode=LS.get('mm.mview','mur');
     const groups=new Map();
-    for(const it of g.items){const vu=it.vuA||it.musee,here=norm(vu)===norm(it.musee);const k=(here?'':'@'+norm(vu)+'|')+(it.expo?norm(it.expo):'');if(!groups.has(k))groups.set(k,{nom:it.expo,vu:here?'':vu,items:[],dates:new Set()});const x=groups.get(k);x.items.push(it);x.dates.add(it.visite)}
+    for(const it of g.items){const vu=it.vuA||it.musee,here=norm(vu)===g.key;const k=(here?'':'@'+norm(vu)+'|')+(it.expo?norm(it.expo):'');if(!groups.has(k))groups.set(k,{nom:it.expo,vu:here?'':vu,items:[],dates:new Set()});const x=groups.get(k);x.items.push(it);x.dates.add(it.visite)}
     const order=[...groups.entries()].sort((a,b)=>(a[0]===''?-1:b[0]===''?1:b[1].items[0].createdAt-a[1].items[0].createdAt));
     const gTitle=x=>x.vu?(x.nom?'Vue lors de l’exposition « '+esc(x.nom)+' » · '+esc(cap1(x.vu)):'Vue à '+esc(cap1(x.vu))):(x.nom?'Exposition « '+esc(x.nom)+' »':'Collections permanentes');
-    root.innerHTML=`${backBtn('Tous les musées')}
-    <div class="mhead" style="background:${wc};--wtx:${tx}"><h2>${esc(g.nom)}</h2><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}</div></div>
-    <div class="row" style="justify-content:space-between;margin-bottom:16px"><div class="segm" id="mv"><button data-m="mur" aria-pressed="${mode==='mur'}">Mur</button><button data-m="liste" aria-pressed="${mode!=='mur'}">Liste</button></div>
+    const lent=g.items.filter(i=>{const h=homeName(i.conservation);return mode==='visite'&&h&&norm(h)!==g.key}).length,away=g.items.filter(i=>norm(i.vuA||i.musee)!==g.key).length;
+    root.innerHTML=`${backBtn(MODES[mode][0])}
+    <div class="mhead" style="background:${wc};--wtx:${tx}"><div class="kind">${mode==='visite'?'Musée visité':'Musée d’origine'}</div><h2>${esc(g.nom)}</h2><div class="meta">${esc(g.ville?g.ville+' · ':'')}${mode==='visite'?plural(g.items.length,'œuvre')+' vue'+(g.items.length>1?'s':'')+' ici'+(lent?' · dont '+lent+' venue'+(lent>1?'s':'')+' d’un autre musée':''):plural(g.items.length,'œuvre')+' de ses collections'+(away?' · '+away+' vue'+(away>1?'s':'')+' ailleurs':'')}</div></div>
+    <div class="row" style="justify-content:space-between;margin-bottom:16px"><div class="segm" id="mv"><button data-m="mur" aria-pressed="${vmode==='mur'}">Mur</button><button data-m="liste" aria-pressed="${vmode!=='mur'}">Liste</button></div>
     <div class="swatches" id="wsw">${WALLS.map(([c,n])=>`<button data-c="${c}" title="Mur ${esc(n)}" aria-label="Mur ${esc(n)}" style="background:${c}" aria-pressed="${c===wc}"></button>`).join('')}</div></div>
-    <details class="mmerge" id="mmg"><summary>Fusionner avec un autre musée</summary><p class="note">Si ce musée apparaît aussi sous un autre nom, choisissez-le : les deux dossiers n’en feront plus qu’un.</p><div class="pick" id="mmo">${museums().filter(x=>x.key!==g.key).map(x=>`<button data-k="${esc(x.key)}">${esc(x.nom)}<small>${plural(x.items.length,'œuvre')}</small></button>`).join('')||'<span class="note">Aucun autre musée.</span>'}</div><div id="mmc"></div></details>`+
-    order.map(([k,x])=>`<div class="room"><h3>${gTitle(x)}</h3><div class="meta">${plural(x.items.length,'œuvre')} · ${x.items.length>1?'vues':'vue'} le ${[...x.dates].filter(Boolean).sort().map(fdate).map(esc).join(', ')}</div>${mode==='mur'?wallHTML(x.items,wc):`<div class="ogrid">${x.items.map(ocard).join('')}</div>`}</div>`).join('')+
-    (mode==='mur'?'<p class="wallnote">Accroché à l’échelle : le chat mesure 32 cm et chaque œuvre est centrée à 1,50 m du sol. Faites glisser le mur pour parcourir la salle ; touchez une œuvre pour ouvrir sa fiche.</p>':'');
-    $('#bk').onclick=()=>{S.museum=null;renderMusees();scrollTo(0,0)};bindCards(root);
+    <details class="mmerge" id="mmg"><summary>Fusionner avec un autre musée</summary><p class="note">Si ce musée apparaît aussi sous un autre nom, choisissez-le : les deux dossiers n’en feront plus qu’un.</p><div class="pick" id="mmo">${museums(mode).filter(x=>x.key!==g.key&&x.key!=='_').map(x=>`<button data-k="${esc(x.key)}">${esc(x.nom)}<small>${plural(x.items.length,'œuvre')}</small></button>`).join('')||'<span class="note">Aucun autre musée.</span>'}</div><div id="mmc"></div></details>`+
+    order.map(([k,x])=>`<div class="room"><h3>${gTitle(x)}</h3><div class="meta">${plural(x.items.length,'œuvre')} · ${x.items.length>1?'vues':'vue'} le ${[...x.dates].filter(Boolean).sort().map(fdate).map(esc).join(', ')}</div>${vmode==='mur'?wallHTML(x.items,wc):`<div class="ogrid">${x.items.map(ocard).join('')}</div>`}</div>`).join('')+
+    (vmode==='mur'?'<p class="wallnote">Accroché à l’échelle : le chat mesure 32 cm et chaque œuvre est centrée à 1,50 m du sol. Faites glisser le mur pour parcourir la salle ; touchez une œuvre pour ouvrir sa fiche.</p>':'');
+    root.querySelector('#bk').onclick=()=>{S.museum=null;renderMusees();scrollTo(0,0)};bindCards(root);
     root.querySelectorAll('#mv button').forEach(b=>b.onclick=()=>{LS.set('mm.mview',b.dataset.m);renderMusees()});
     root.querySelectorAll('#wsw button').forEach(b=>b.onclick=()=>{const w=LS.get('mm.walls',{});w[g.key]=b.dataset.c;LS.set('mm.walls',w);renderMusees()});
     root.querySelectorAll('#mmo [data-k]').forEach(b=>b.onclick=()=>{
-      const o=museums().find(x=>x.key===b.dataset.k);if(!o)return;const pair=[g,o];let pick=0;
+      const o=museums(mode).find(x=>x.key===b.dataset.k);if(!o)return;const pair=[g,o];let pick=0;
       root.querySelectorAll('#mmo [data-k]').forEach(z=>z.setAttribute('aria-pressed',z===b));
       $('#mmc').innerHTML=`<p class="note" style="margin-top:10px">Nom à garder :</p>${mergePanel(pair,'m')}<button class="btn main small" id="mmgo">Fusionner les deux dossiers</button>`;
       $('#mmc').querySelectorAll('[data-n]').forEach(z=>z.onclick=()=>{pick=+z.dataset.n;$('#mmc').querySelectorAll('[data-n]').forEach(y=>y.setAttribute('aria-pressed',y===z))});
       $('#mmgo').onclick=async()=>{const name=pair[pick].nom;const n=await mergeMuseums([g.key,o.key],name);S.museum=norm(name)||'_';toast('Musées fusionnés dans « '+name+' » ('+plural(n,'fiche')+' mise'+(n>1?'s':'')+' à jour)');renderMusees()};
     });
-    if(mode==='mur')g.items.forEach(it=>{if(!it.pw&&it.photo)measure(it.photo).then(m=>{if(m.pw){upd(it.id,m);}})});
+    if(vmode==='mur')g.items.forEach(it=>{if(!it.pw&&it.photo)measure(it.photo).then(m=>{if(m.pw){upd(it.id,m);}})});
     return;
   }
-  const ms=museums(),dups=dupClusters();
-  root.innerHTML=`<div class="head"><h2>Mes musées</h2>${S.items.length?'<button class="btn small" id="rnd">Revoir une œuvre au hasard</button>':''}</div>`+
+  const ms=museums(mode),dups=dupClusters(mode);
+  root.innerHTML=`<div class="head"><h2>Mes musées</h2>${S.items.length?'<button class="btn small" id="rnd">Revoir une œuvre au hasard</button>':''}</div>
+  <div class="mtabs"><div class="segm" id="mtab">${Object.entries(MODES).map(([k,[l]])=>`<button data-t="${k}" aria-pressed="${mode===k}">${l}</button>`).join('')}</div><p class="note">${mode==='visite'?'Les lieux où vous avez vu les œuvres, expositions temporaires comprises.':'Les musées qui possèdent les œuvres que vous avez aimées, même si vous les avez vues ailleurs.'}</p></div>`+
   dups.map((c,ci)=>`<div class="dup" data-dup="${ci}"><b>Ces musées semblent être le même lieu</b><p>Choisissez le nom à garder, puis fusionnez : toutes les fiches seront rangées dans un seul dossier.</p>${mergePanel(c,'d'+ci)}<div class="row"><button class="btn main small" data-mg="${ci}">Fusionner</button><button class="btn small" data-ka="${ci}">Ce sont des musées différents</button></div></div>`).join('')+
-  (ms.length?`<div class="mgrid">${ms.map(g=>{const here=i=>norm(i.vuA||i.musee)===norm(i.musee);const ex=new Set(g.items.filter(i=>i.expo&&here(i)).map(i=>norm(i.expo))).size;const away=g.items.filter(i=>!here(i)).length;const p=g.items.slice(0,3);
-    return `<button class="mcard" data-m="${esc(g.key)}"><div class="ph" style="background:${wallOf(g)}">${p[0]?thumb(p[0]):''}<div class="stackp">${p[1]?thumb(p[1]):''}${p[2]?thumb(p[2]):''}</div></div><div class="tx"><h3>${esc(g.nom)}</h3><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}${ex?' · '+plural(ex,'expo')+' temporaire'+(ex>1?'s':''):''}${away?' · '+away+' vue'+(away>1?'s':'')+' ailleurs':''}</div></div></button>`}).join('')}</div>`
+  (ms.length?`<div class="mgrid">${ms.map(g=>{const here=i=>norm(i.vuA||i.musee)===g.key;const ex=mode==='visite'?new Set(g.items.filter(i=>i.expo).map(i=>norm(i.expo))).size:0;const away=mode==='origine'?g.items.filter(i=>!here(i)).length:0;const lent=mode==='visite'?g.items.filter(i=>{const h=homeName(i.conservation);return h&&norm(h)!==g.key}).length:0;const p=g.items.slice(0,3);
+    return `<button class="mcard" data-m="${esc(g.key)}"><div class="ph" style="background:${wallOf(g)}">${p[0]?thumb(p[0]):''}<div class="stackp">${p[1]?thumb(p[1]):''}${p[2]?thumb(p[2]):''}</div></div><div class="tx"><h3>${esc(g.nom)}</h3><div class="meta">${esc(g.ville?g.ville+' · ':'')}${plural(g.items.length,'œuvre')}${ex?' · '+plural(ex,'expo')+' temporaire'+(ex>1?'s':''):''}${away?' · '+away+' vue'+(away>1?'s':'')+' ailleurs':''}${lent?' · '+lent+' prêtée'+(lent>1?'s':''):''}</div></div></button>`}).join('')}</div>`
   :`<div class="emptyst"><h3>Aucun musée pour l’instant</h3>Photographiez votre première œuvre : son musée apparaîtra ici.</div>`);
   root.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{S.museum=b.dataset.m;renderMusees();scrollTo(0,0)});
   const r=$('#rnd');if(r)r.onclick=()=>openFiche(S.items[Math.floor(Math.random()*S.items.length)].id);
+  root.querySelectorAll('#mtab [data-t]').forEach(b=>b.onclick=()=>{S.mmode=b.dataset.t;LS.set('mm.mtab',S.mmode);renderMusees()});
   dups.forEach((c,ci)=>{
     let pick=0;const box=root.querySelector(`[data-dup="${ci}"]`);
     box.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{pick=+b.dataset.n;box.querySelectorAll('[data-n]').forEach(z=>z.setAttribute('aria-pressed',z===b))});
@@ -756,26 +767,25 @@ async function copyText(t){
 }
 function renderFiche(){
   const root=$('#v-fiche');const it=S.items.find(x=>x.id===S.ficheId);
-  if(!it){root.innerHTML=`${backBtn('Retour')}<div class="emptyst"><h3>Fiche introuvable</h3></div>`;$('#bk').onclick=()=>show('musees');return}
+  if(!it){root.innerHTML=`${backBtn('Retour')}<div class="emptyst"><h3>Fiche introuvable</h3></div>`;root.querySelector('#bk').onclick=()=>show('musees');return}
   const f=it.fiche||{},a=f.analyse||{},wd=it.wd||null,w=it.wiki||null,aw=it.artistWiki||null;
-  const spec=[['Technique',it.technique],['Dimensions',it.dimensions],['Mouvement',it.mouvement],['Genre',wd&&wd.genre],['Conservée à',it.conservation],['N° d’inventaire',wd&&wd.inventaire],['Représente',wd&&wd.represente&&wd.represente.join(', ')]].filter(x=>x[1]);
+  const spec=[['Technique',it.technique],['Dimensions',it.dimensions],['Mouvement',it.mouvement],['Genre',wd&&wd.genre],['Musée d’origine',homeName(it.conservation)||it.conservation],['N° d’inventaire',wd&&wd.inventaire],['Représente',wd&&wd.represente&&wd.represente.join(', ')]].filter(x=>x[1]);
   const lies=(f.oeuvres_liees||[]).filter(x=>x&&x.titre).map(x=>`<li><i>${esc(x.titre)}</i>${x.artiste?', '+esc(x.artiste):''}${x.lieu?' ('+esc(x.lieu)+')':''}${x.lien?' : '+esc(x.lien):''}</li>`).join('');
   const wsecs=w?w.sections:[];const intro=wsecs[0]&&!wsecs[0].h?wsecs[0]:null;const rest=wsecs.filter(s=>s.h);
   const noAI=!f.accroche&&!f.contexte;
-  root.innerHTML=`${backBtn(esc(cap1(it.musee)))}
+  root.innerHTML=`${backBtn(esc(cap1(it.vuA||it.musee)))}
   ${it.pending?`<div class="pend"><b>Œuvre à identifier.</b> La photo et le lieu sont gardés ; identifiez-la quand vous aurez du réseau.<button class="btn main small" id="idn">Identifier maintenant</button></div>`:''}
   <div class="fiche"><div class="left">${frameWrap(it,thumb(it)?(dimsOf(it)&&isFlat(it)?`<div class="ci bigci" style="${ciStyle(it)};--r:${ratioOf(it).toFixed(3)}">${thumb(it)}</div>`:thumb(it)):'<div class="nophoto">Pas de photo</div>','bigfr')}
     ${useRefFor(it)&&wd&&wd.image?`<p class="src" style="margin-top:8px">Image de référence · <a href="https://commons.wikimedia.org/wiki/File:${encodeURIComponent(wd.image)}" target="_blank" rel="noopener">Wikimedia Commons</a></p>`:''}
     <div class="frow"><button class="btn small" id="frBtn" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="1"/><rect x="7" y="7" width="10" height="10"/></svg>Cadre · ${esc(frameLabel(frameOf(it)))}</button>${wd&&wd.image&&it.photo?`<div class="segm sm" id="srcSeg"><button data-s="own" aria-pressed="${!useRefFor(it)}">Ma photo</button><button data-s="ref" aria-pressed="${useRefFor(it)}">Image de référence</button></div>`:''}</div>
     <div class="pick" id="fpick" hidden>${framePicker(it.frame||'',autoFrameFor(it))}</div>
-    <div class="seen">Vue le <b>${esc(fdate(it.visite))}</b> à <b>${esc(cap1(it.vuA||it.musee))}</b>${(it.vuVille||it.ville)?', '+esc(it.vuVille||it.ville):''}${it.expo?`<br>Exposition temporaire « <b>${esc(it.expo)}</b> »${it.enPret&&it.conservation?' — prêt de '+esc(homeName(it.conservation)):''}`:norm(it.vuA||it.musee)===norm(it.musee)?'<br>Collections permanentes':''}${norm(it.vuA||it.musee)!==norm(it.musee)?`<br>Rangée dans <b>${esc(cap1(it.musee))}</b>`:''}</div>
+    <div class="seen">Vue le <b>${esc(fdate(it.visite))}</b> à <b>${esc(cap1(it.vuA||it.musee))}</b>${(it.vuVille||it.ville)?', '+esc(it.vuVille||it.ville):''}${it.expo?`<br>Exposition temporaire « <b>${esc(it.expo)}</b> »${it.enPret&&it.conservation?' — prêt de '+esc(homeName(it.conservation)):''}`:norm(it.vuA||it.musee)===norm(it.musee)?'<br>Collections permanentes':''}${homeName(it.conservation)&&norm(homeName(it.conservation))!==norm(it.vuA||it.musee)?`<br>Musée d’origine : <b>${esc(homeName(it.conservation))}</b>`:''}</div>
     <div class="toolbar"><button class="btn small fav" id="fv" aria-pressed="${!!it.favori}">${it.favori?'Coup de cœur':'Ajouter aux coups de cœur'}</button><button class="btn small" id="cp">Copier la fiche</button>${it.photo?'<button class="btn small" id="crp">Recadrer</button>':''}${it.pending?'':'<button class="btn small" id="rg">Mettre à jour</button><button class="btn small" id="rid">Changer d’œuvre</button>'}<button class="btn small" id="dl">Supprimer</button></div>
     <details class="edit"><summary>Corriger l’œuvre ou le lieu</summary>
       <label class="f">Titre<input id="eT"></label><div class="g2"><label class="f">Artiste<input id="eA"></label><label class="f">Date<input id="eD"></label></div>
       <label class="f">Musée de l’œuvre (où elle est conservée)<input id="eC" data-sugg="musees" autocomplete="off"></label>
       <div class="g2"><label class="f">Vue à<input id="eU" data-sugg="musees" autocomplete="off"></label><label class="f">Ville<input id="eV"></label></div>
       <div class="g2"><label class="f">Exposition temporaire<input id="eX" data-sugg="expos" autocomplete="off"></label><label class="f">Date de visite<input id="eW" type="date"></label></div>
-      <label class="f">Rangée dans le dossier<input id="eM" data-sugg="musees" autocomplete="off"></label>
       <button class="btn main small" id="es">Enregistrer</button></details>
   </div>
   <div><h2>${esc(it.titre)}</h2><div class="who">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>
@@ -800,7 +810,7 @@ function renderFiche(){
     ${f.mots_cles&&f.mots_cles.length?`<p class="note" style="margin-top:24px">${f.mots_cles.map(esc).join(' · ')}</p>`:''}
   </div></div>`;
   const cur=()=>S.items.find(x=>x.id===it.id)||it;
-  $('#bk').onclick=()=>{S.museum=norm(it.musee)||'_';show('musees')};
+  root.querySelector('#bk').onclick=()=>{S.mmode='visite';S.museum=norm(it.vuA||it.musee)||'_';show('musees')};
   const big=root.querySelector('.bigfr');if(big&&(it.photo||it.refPhoto))big.onclick=()=>{const c=cur();const own={label:'Ma photo',src:photoURL(c,'own')},ref=c.wd&&c.wd.image?{label:'Image de référence',src:c.refPhoto?photoURL(c,'ref'):commonsThumb(c.wd.image,2400)}:null;const car=c.cartel&&c.cartel!==c.photo?{label:'Cartel',src:photoURL(c,'cartel')}:null;openViewer((useRefFor(c)?[ref,own]:[own,ref]).concat([car]))};
   const frB=$('#frBtn'),fp=$('#fpick');frB.onclick=()=>{fp.hidden=!fp.hidden;frB.setAttribute('aria-expanded',!fp.hidden)};
   root.querySelectorAll('#srcSeg [data-s]').forEach(b=>b.onclick=async()=>{const c=cur(),want=b.dataset.s==='ref';if(want===useRefFor(c))return;
@@ -814,18 +824,18 @@ function renderFiche(){
   $('#cp').onclick=()=>copyText(ficheText(cur()));
   const reid=()=>{const c=cur();if(!c.photo){toast('Pas de photo à identifier');return}resetCap();S.replace=c.id;S.photo={blob:c.photo,url:URL.createObjectURL(c.photo)};show('capturer');scrollTo(0,0);startIdentify()};
   const idn=$('#idn');if(idn)idn.onclick=reid;const rid=$('#rid');if(rid)rid.onclick=reid;
-  const E={eT:'titre',eA:'artiste',eD:'date',eC:'conservation',eU:'vuA',eV:'vuVille',eX:'expo',eW:'visite',eM:'musee'};
+  const E={eT:'titre',eA:'artiste',eD:'date',eC:'conservation',eU:'vuA',eV:'vuVille',eX:'expo',eW:'visite'};
   const val0={...it,vuA:it.vuA||it.musee,vuVille:it.vuVille||it.ville};
   for(const k in E)$('#'+k).value=val0[E[k]]||'';
   $('#es').onclick=async()=>{const p={};for(const k in E)p[E[k]]=$('#'+k).value.trim();
-    const n={...cur(),...p};if(norm(p.musee)===norm(it.musee))n.musee=folderFor(n);n.musee=n.musee||'Lieu non précisé';
+    const n={...cur(),...p};n.musee=folderFor(n);
     p.musee=n.musee;p.ville=folderCity(n,n.musee);p.enPret=enPret(n);if(norm(p.musee)!==norm(it.musee))p.loc=locFor(p.musee);
     await upd(it.id,p);fillLists();renderFiche();toast(norm(p.musee)!==norm(it.musee)?'Fiche rangée dans '+cap1(p.musee):'Fiche mise à jour')};
   const dl=$('#dl');let armed=false;dl.onclick=async()=>{
     if(!armed){armed=true;dl.textContent='Confirmer la suppression';dl.classList.add('danger');setTimeout(()=>{armed=false;if(dl.isConnected){dl.textContent='Supprimer';dl.classList.remove('danger')}},4000);return}
     S.items=S.items.filter(x=>x.id!==it.id);dropURLs(it.id);
     try{await DB.del(it.id)}catch(e){}
-    toast('Œuvre supprimée');S.museum=norm(it.musee)||'_';show('musees');
+    toast('Œuvre supprimée');S.mmode='visite';S.museum=norm(it.vuA||it.musee)||'_';show('musees');
   };
   const rg=$('#rg');if(rg)rg.onclick=async()=>{
     rg.disabled=true;const c=cur();
@@ -871,10 +881,6 @@ async function renderReglages(){
     <label class="f">Modèle<select id="sModel">${[...new Set([cfg.model,...(cfg.models||[]),...PREF].filter(Boolean))].map(v=>`<option value="${esc(v)}">${esc(v)}${PREF[0]===v?' (recommandé)':''}</option>`).join('')}</select></label>
     <p class="note">Si un modèle n’est pas gratuit ou que son quota du jour est épuisé, l’app passe automatiquement au suivant.</p>
   </div>
-  <div class="card"><h3>Rangement des œuvres</h3>
-    <p>Dans quel dossier de l’onglet Musées ranger chaque œuvre ? Le lieu et l’exposition où vous l’avez vue restent toujours indiqués dans sa fiche.</p>
-    <div class="pick" id="rpick"><button data-r="origine" aria-pressed="${cfg.rangement!=='visite'}">Dans le musée qui conserve l’œuvre</button><button data-r="visite" aria-pressed="${cfg.rangement==='visite'}">Dans le lieu où je l’ai vue</button></div>
-  </div>
   <div class="card"><h3>Cadre par défaut</h3>
     <p>« Selon l’époque » choisit le cadre d’après la date et la technique de l’œuvre. Vous pouvez aussi changer le cadre œuvre par œuvre, dans sa fiche.</p>
     <div class="pick" id="spick">${framePicker(cfg.frame==='auto'?'':cfg.frame,null,true)}</div>
@@ -902,7 +908,6 @@ async function renderReglages(){
   const sd=$('#sDel');if(sd)sd.onclick=()=>{cfg.gemKey='';saveCfg();renderReglages();renderCap();toast('Clé retirée : l’app fonctionne sans IA.')};
   const m=$('#sModel');m.value=cfg.model||PREF[0];m.onchange=()=>{cfg.model=m.value;saveCfg()};
   const l=$('#sLoc');l.checked=cfg.autoLoc;l.onchange=()=>{cfg.autoLoc=l.checked;saveCfg();if(l.checked)toast('La détection se fera à la prochaine ouverture, ou avec « Me localiser ».')};
-  root.querySelectorAll('#rpick [data-r]').forEach(b=>b.onclick=async()=>{if(cfg.rangement===b.dataset.r)return;cfg.rangement=b.dataset.r;saveCfg();const n=await refileAll();renderReglages();toast(n?plural(n,'œuvre')+' reclassée'+(n>1?'s':''):'Rangement modifié')});
   const sr=$('#sRef');sr.checked=!!cfg.preferRef;sr.onchange=async()=>{cfg.preferRef=sr.checked;saveCfg();if(sr.checked){const todo=S.items.filter(i=>i.wd&&i.wd.image&&!i.refPhoto&&i.useRef!==false);if(todo.length){toast('Téléchargement de '+plural(todo.length,'image')+' de référence…');let ok=0;for(const i of todo){try{await upd(i.id,await fetchRef(i));ok++}catch(e){}}toast(ok+' / '+todo.length+' image'+(todo.length>1?'s':'')+' de référence téléchargée'+(ok>1?'s':''))}}};
   root.querySelectorAll('#spick [data-f]').forEach(b=>b.onclick=()=>{cfg.frame=b.dataset.f||'auto';saveCfg();renderReglages()});
   $('#sExp').onclick=exportBackup;
@@ -1164,7 +1169,7 @@ function loadLeaflet(){
   }));
 }
 async function museumCoords(g){
-  const it=g.items.find(i=>i.loc&&i.loc.lat!=null);if(it)return it.loc;
+  const it=g.items.find(i=>i.loc&&i.loc.lat!=null&&norm(i.vuA||i.musee)===g.key);if(it)return it.loc;
   const cache=LS.get('mm.coords',{});if(cache[g.key])return cache[g.key];
   try{const q=await museumQid(g.nom);if(!q)return null;const e=(await wdEntities([q],'claims'))[q];const c=cl(e,'P625')[0];
     if(c){const v={lat:c.latitude,lon:c.longitude};cache[g.key]=v;LS.set('mm.coords',cache);return v}}catch(e){}
@@ -1181,25 +1186,32 @@ function renderExplorer(){
   if(tab==='frise')renderFrise();else if(tab==='stats')renderStats();else renderMap();
 }
 async function renderMap(){
-  const b=$('#exb');b.innerHTML='<div id="map"></div><p class="note" id="mapnote"><span class="spin"></span>Chargement de la carte…</p>';
+  const b=$('#exb'),mm0=LS.get('mm.mapmode','visite');
+  b.innerHTML=`<div class="row" style="margin-bottom:12px"><div class="segm sm" id="mapm">${[['visite','Musées visités'],['origine','Musées d’origine'],['tous','Les deux']].map(([k,l])=>`<button data-k="${k}" aria-pressed="${mm0===k}">${l}</button>`).join('')}</div></div><div id="map"></div><p class="legend"><span class="lg v"></span>Musée visité <span class="lg o"></span>Musée d’origine des œuvres</p><p class="note" id="mapnote"><span class="spin"></span>Chargement de la carte…</p>`;
+  b.querySelectorAll('#mapm [data-k]').forEach(x=>x.onclick=()=>{LS.set('mm.mapmode',x.dataset.k);if(mapObj){try{mapObj.remove()}catch(e){}mapObj=null}renderMap()});
   let L;try{L=await loadLeaflet()}catch(e){const n=$('#mapnote');if(n)n.textContent=e.message;return}
   const el=$('#map');if(!el||S.view!=='explorer')return;
   mapObj=L.map(el).setView([46.6,2.4],5);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(mapObj);
   setTimeout(()=>mapObj&&mapObj.invalidateSize(),120);
-  const map=mapObj,pts=[],miss=[];
-  for(const g of museums()){
+  const map=mapObj,pts=[],miss=[],mm=LS.get('mm.mapmode','visite');
+  const modes=mm==='tous'?['origine','visite']:[mm];
+  for(const mode of modes)for(const g of museums(mode)){
+    if(g.key==='_')continue;
     const c=await museumCoords(g);if(mapObj!==map)return;
     if(!c){miss.push(g.nom);continue}
-    const box=document.createElement('div'),t=document.createElement('b'),p=document.createElement('div'),bt=document.createElement('button');
-    t.textContent=g.nom;p.textContent=plural(g.items.length,'œuvre')+(g.ville?' · '+g.ville:'');bt.textContent='Voir le musée';bt.onclick=()=>{S.museum=g.key;show('musees');scrollTo(0,0)};box.append(t,p,bt);
-    L.circleMarker([c.lat,c.lon],{radius:Math.min(16,7+Math.sqrt(g.items.length)*2),color:'#fff',weight:2,fillColor:'#5c1825',fillOpacity:.92}).addTo(map).bindPopup(box);
+    const box=document.createElement('div'),k=document.createElement('small'),t=document.createElement('b'),p=document.createElement('div'),bt=document.createElement('button');
+    k.textContent=mode==='visite'?'Musée visité':'Musée d’origine';k.style.cssText='display:block;color:#8a7f78';
+    t.textContent=g.nom;p.textContent=(mode==='visite'?plural(g.items.length,'œuvre')+' vue'+(g.items.length>1?'s':'')+' ici':plural(g.items.length,'œuvre')+' de ses collections')+(g.ville?' · '+g.ville:'');
+    bt.textContent='Voir le musée';bt.onclick=()=>{S.mmode=mode;S.museum=g.key;show('musees');scrollTo(0,0)};box.append(k,t,p,bt);
+    const r=Math.min(16,7+Math.sqrt(g.items.length)*2);
+    L.circleMarker([c.lat,c.lon],mode==='visite'?{radius:r,color:'#fff',weight:2,fillColor:'#5c1825',fillOpacity:.92}:{radius:r+3,color:'#b48448',weight:3,fillColor:'#fff',fillOpacity:.85}).addTo(map).bindPopup(box);
     pts.push([c.lat,c.lon]);
   }
   if(pts.length===1)map.setView(pts[0],14);else if(pts.length)map.fitBounds(pts,{padding:[40,40],maxZoom:14});
-  const n=$('#mapnote');if(n)n.textContent=(pts.length?plural(pts.length,'musée')+' sur la carte.':'Aucun musée localisé.')+(miss.length?' Position introuvable pour : '+miss.join(', ')+'.':'');
+  const n=$('#mapnote');if(n)n.textContent=(pts.length?plural(pts.length,'point')+' sur la carte.':'Aucun musée localisé.')+(miss.length?' Position introuvable pour : '+miss.join(', ')+'.':'');
 }
-function tlRow(it){return `<button class="tlrow" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci" style="${ciStyle(it)}">${thumb(it)}</div>`)}<span><b>${esc(it.titre)}</b><small>${esc([it.artiste,it.musee].filter(Boolean).join(' · '))}</small>${it.date||(it.wd&&it.wd.date)?`<small class="yr">${esc(it.date||it.wd.date)}</small>`:''}</span></button>`}
+function tlRow(it){return `<button class="tlrow" data-o="${esc(it.id)}">${frameWrap(it,`<div class="ci" style="${ciStyle(it)}">${thumb(it)}</div>`)}<span><b>${esc(it.titre)}</b><small>${esc([it.artiste,(it.vuA||it.musee)?'vue à '+cap1(it.vuA||it.musee):''].filter(Boolean).join(' · '))}</small>${it.date||(it.wd&&it.wd.date)?`<small class="yr">${esc(it.date||it.wd.date)}</small>`:''}</span></button>`}
 function renderFrise(){
   const rows=S.items.map(it=>({it,y:yearOf(it)}));
   const dated=rows.filter(r=>r.y!=null).sort((a,b)=>a.y-b.y),und=rows.filter(r=>r.y==null);
@@ -1216,20 +1228,28 @@ function renderStats(){
   const movs=tally(its.flatMap(i=>String(i.mouvement||'').split(/,\s*/).map(x=>x.trim())));
   const cm=new Map();for(const i of its){const y=yearOf(i);if(y==null)continue;const c=centuryOf(y);cm.set(c,(cm.get(c)||0)+1)}
   const cents=[...cm.entries()].sort((a,b)=>a[0]-b[0]).map(([c,n])=>[centuryLabel(c),n]);
-  const mus=tally(S.items.map(i=>i.musee));
+  const mus=tally(S.items.map(i=>cap1(i.vuA||i.musee)).filter(x=>norm(x)!=='lieu non precise'));
+  const orig=tally(its.map(i=>homeName(i.conservation)).filter(Boolean));
+  const loans=its.filter(i=>{const h=homeName(i.conservation);return h&&norm(h)!==norm(i.vuA||i.musee)}).length;
   const days=new Set(S.items.map(i=>i.visite)).size,fav=S.items.filter(i=>i.favori).length;
   const card=(n,a,b)=>`<div class="stat"><b>${n}</b><span>${n>1?b:a}</span></div>`;
-  $('#exb').innerHTML=`<div class="stats">${card(S.items.length,'œuvre','œuvres')}${card(mus.length,'musée','musées')}${card(artists.length,'artiste','artistes')}${card(fav,'coup de cœur','coups de cœur')}${card(days,'jour de visite','jours de visite')}</div>
+  $('#exb').innerHTML=`<div class="stats">${card(S.items.length,'œuvre','œuvres')}${card(mus.length,'musée visité','musées visités')}${card(orig.length,'musée d’origine','musées d’origine')}${card(loans,'œuvre vue hors de son musée','œuvres vues hors de leur musée')}${card(artists.length,'artiste','artistes')}${card(fav,'coup de cœur','coups de cœur')}${card(days,'jour de visite','jours de visite')}</div>
   ${artists.length?`<div class="blk"><h3>Vos artistes</h3>${bars(artists)}</div>`:''}
   ${movs.length?`<div class="blk"><h3>Mouvements et écoles</h3>${bars(movs)}</div>`:''}
   ${cents.length?`<div class="blk"><h3>Par siècle</h3>${bars(cents,40)}</div>`:''}
-  <div class="blk"><h3>Par musée</h3>${bars(mus)}</div>`;
+  <div class="blk"><h3>Musées visités</h3><p class="note" style="margin:-2px 0 8px">Œuvres vues dans chaque lieu</p>${bars(mus)}</div>
+  ${orig.length?`<div class="blk"><h3>Musées d’origine</h3><p class="note" style="margin:-2px 0 8px">Musées qui conservent les œuvres que vous avez aimées</p>${bars(orig)}</div>`:''}`;
 }
 
 async function refileAll(){
   let n=0;
   for(const it of [...S.items]){if(it.pending)continue;const m=folderFor(it);if(norm(m)!==norm(it.musee)){n++;await save({...it,musee:m,ville:folderCity(it,m),loc:locFor(m),enPret:enPret(it)})}}
   fillLists();return n;
+}
+async function migrate2(){
+  if(LS.get('mm.mig2',false))return;
+  for(const it of [...S.items]){const m=folderFor(it);if(norm(m)!==norm(it.musee)||it.musee!==m)await save({...it,musee:m,ville:folderCity(it,m),loc:locFor(m)||(norm(m)===norm(it.musee)?it.loc:null)})}
+  LS.set('mm.mig2',true);
 }
 async function migrate(){
   if(LS.get('mm.mig1',false))return;
@@ -1286,7 +1306,7 @@ addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(TABS.includ
 (async()=>{
   renderCap();
   {const h=location.hash.slice(1);show(TABS.includes(h)?h:'capturer')}
-  try{S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);await migrate();S.items.sort((a,b)=>b.createdAt-a.createdAt)}catch(e){toast('Stockage local indisponible : '+(e&&e.message||e),8000)}
+  try{S.items=(await DB.all()).sort((a,b)=>b.createdAt-a.createdAt);await migrate();await migrate2();S.items.sort((a,b)=>b.createdAt-a.createdAt)}catch(e){toast('Stockage local indisponible : '+(e&&e.message||e),8000)}
   fillLists();show(S.view);
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
   if(cfg.autoLoc){const manualRecent=vis.source==='manuel'&&Date.now()-vis.ts<4*36e5;if(!manualRecent||!vis.musee)detect(true);else $('#locStatus').textContent='Lieu saisi à la main. Touchez « Me localiser » pour le détecter.'}

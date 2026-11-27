@@ -291,3 +291,8 @@ select,option{background-color:var(--panel);color:var(--ink)}
 .pick [data-n],.pick [data-k]{flex-direction:column;align-items:flex-start;padding:8px 12px;text-align:left}
 details.mmerge{margin:-4px 0 18px}
 details.mmerge summary{cursor:pointer;color:var(--mute);font-size:14px;font-weight:500;min-height:36px;display:flex;align-items:center}
+.mtabs{margin:-6px 0 18px}.mtabs .note{margin-top:8px}
+.mhead .kind{font-size:13px;font-weight:600;opacity:.8;margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:13px;color:var(--mute);margin:8px 2px 0}
+.lg{display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:-2px;margin-right:4px}
+.lg.v{background:#5c1825;box-shadow:0 0 0 2px #fff,0 0 0 3px var(--line)}.lg.o{background:#fff;border:3px solid #b48448}
