@@ -129,13 +129,15 @@ out tags;`;
   out.sort((a,b)=>(b.inside-a.inside)||((a.kind==='gallery')-(b.kind==='gallery'))||(a.d-b.d));
   return {list:out.slice(0,8),city,R};
 }
+let DET=0;
 async function detect(auto){
-  if(detecting)return;detecting=true;
+  if(detecting)return;detecting=true;const run=++DET;
   const st=$('#locStatus'),b=$('#locBtn');b.disabled=true;
-  st.innerHTML='<span class="spin"></span>Recherche des musées autour de vous…';
+  st.innerHTML='<span class="spin"></span>Recherche des musées autour de vous… <button class="linkbtn" id="locx">Annuler</button>';
+  $('#locx').onclick=()=>{DET++;detecting=false;b.disabled=false;st.textContent='Recherche annulée. Saisissez le lieu à la main ou touchez « Me localiser ».'};
   try{
-    const p=await locate();
-    const {list:ls,city,R}=await nearbyMuseums(p);
+    const p=await locate();if(run!==DET)return;
+    const {list:ls,city,R}=await nearbyMuseums(p);if(run!==DET)return;
     lastDetect=Date.now();nearby=ls;
     const best=ls[0];
     const sure=best&&(best.inside||best.d<120);
@@ -147,11 +149,11 @@ async function detect(auto){
       st.textContent=auto&&manualRecent&&sure?`Vous semblez être à ${best.name}. Touchez-le pour changer de lieu.`:'Plusieurs lieux à proximité : touchez le vôtre, ou saisissez-le à la main.';
     }else st.textContent='Aucun musée trouvé à moins de '+R+' m. Saisissez le lieu à la main.';
     renderChips();
-  }catch(e){st.textContent=e.message||'Localisation impossible.';nearby=[];renderChips()}
-  finally{detecting=false;b.disabled=false}
+  }catch(e){if(run!==DET)return;st.textContent=e.message||'Localisation impossible.';nearby=[];renderChips()}
+  finally{if(run===DET){detecting=false;b.disabled=false}}
 }
 function renderChips(){
-  const c=$('#locChips');
+  fillLists();const c=$('#locChips');
   c.innerHTML=nearby.map((x,i)=>`<button class="chip" data-i="${i}" data-name="${esc(x.name)}" aria-pressed="${norm(x.name)===norm(vis.musee)}">${esc(x.name)}<small>${x.inside?'ici':Math.round(x.d)+' m'}</small></button>`).join('');
   c.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const x=nearby[+b.dataset.i];setVisit(x.name,x.city,undefined,'manuel',x.qid,x.lat!=null?{lat:x.lat,lon:x.lon}:null);renderChips();$('#locStatus').innerHTML=`<span class="locok">Lieu choisi : <b>${esc(x.name)}</b></span>`});
 }
@@ -276,7 +278,7 @@ function gemText(j){
   if(!c){if(j.promptFeedback&&j.promptFeedback.blockReason)throw new Error('Gemini a refusé de répondre ('+j.promptFeedback.blockReason+').');return ''}
   return ((c.content&&c.content.parts)||[]).filter(p=>!p.thought).map(p=>p.text||'').join('');
 }
-async function gemini({prompt,images=[],json=false,maxTokens=8192,onText}){
+async function gemini({prompt,images=[],json=false,maxTokens=8192,onText,signal}){
   if(!cfg.gemKey){const e=new Error('Pas de clé Gemini.');e.noKey=true;throw e}
   if(!navigator.onLine)throw new Error('Pas de connexion internet.');
   const parts=[];for(const b of images)parts.push({inline_data:{mime_type:'image/jpeg',data:await b64(b)}});parts.push({text:prompt});
@@ -284,8 +286,8 @@ async function gemini({prompt,images=[],json=false,maxTokens=8192,onText}){
   const models=[...new Set([cfg.model,...(cfg.models||[]),...PREF].filter(Boolean))].slice(0,6);
   let last,unusable=true;
   for(const m of models){
-    let r;try{r=await fetch(`${GEM}/models/${m}:${onText?'streamGenerateContent?alt=sse':'generateContent'}`,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':cfg.gemKey},body})}
-    catch(e){throw new Error('Impossible de joindre Gemini : vérifiez la connexion.')}
+    let r;try{r=await fetch(`${GEM}/models/${m}:${onText?'streamGenerateContent?alt=sse':'generateContent'}`,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':cfg.gemKey},body,signal})}
+    catch(e){if(isAbort(e))throw e;throw new Error('Impossible de joindre Gemini : vérifiez la connexion.')}
     if(!r.ok){const e=gemError(r.status,await r.text());if(e.skip||e.quota){last=e;if(!(e.skip||e.zero))unusable=false;continue}throw e}
     if(m!==cfg.model&&unusable){cfg.model=m;saveCfg()}
     if(onText){
@@ -326,8 +328,8 @@ function ctxText(){
   const x=b?b.expo||'':$('#vExpo').value.trim();
   return `Lieu de visite indiqué par le visiteur : ${v||'non précisé'}${vis.source==='gps'&&v?' (détecté par géolocalisation)':''}. Exposition temporaire : ${x||'aucune indiquée'}. Date de la visite : ${today()}.`;
 }
-function identPrompt(hint,withCartel,cartelOnly){
-  return `Tu es conservateur de musée et historien de l'art. ${cartelOnly?'La photo jointe montre le cartel (l’étiquette) d’une œuvre, prise par un visiteur : l’œuvre elle-même n’est pas photographiée. Identifie l’œuvre d’après le texte du cartel.':'Identifie l’œuvre d’art sur la première photo, prise par un visiteur (prise de biais possible, reflets, cadre).'}${cartelOnly?'':withCartel?' La seconde photo montre le cartel de l’œuvre : sers-t’en en priorité.':' Si un cartel est lisible sur la photo, sers-t’en.'}
+function identPrompt(hint,withCartel,cartelOnly,name){
+  return `Tu es conservateur de musée et historien de l'art. ${name?'Le visiteur indique le nom de l’œuvre : « '+name+' ». Retrouve cette œuvre et donne ses informations'+(withCartel||!cartelOnly?' ; la photo jointe (l’œuvre ou son cartel) sert seulement à vérifier qu’il s’agit bien d’elle':'')+'. Si plusieurs œuvres portent ce nom, choisis la plus probable vu le lieu de visite et propose les autres en candidats.':cartelOnly?'La photo jointe montre le cartel (l’étiquette) d’une œuvre, prise par un visiteur : l’œuvre elle-même n’est pas photographiée. Identifie l’œuvre d’après le texte du cartel.':'Identifie l’œuvre d’art sur la première photo, prise par un visiteur (prise de biais possible, reflets, cadre).'}${cartelOnly?'':withCartel?' La seconde photo montre le cartel de l’œuvre : sers-t’en en priorité.':' Si un cartel est lisible sur la photo, sers-t’en.'}
 ${ctxText()}${hint?'\nIndice donné par le visiteur : '+hint:''}
 Réponds par un objet JSON :
 {"reconnu":true,"confiance":"haute|moyenne|faible","titre":"titre usuel en français","titre_original":"","artiste":"nom complet ou 'Anonyme' + atelier/culture","date":"date ou période","technique":"technique et support","dimensions":"si connues, sinon ''","mouvement":"","conservation":{"institution":"musée ou institution qui possède l'œuvre (son nom, pas le département)","ville":""},"lieu_visite":{"musee":"nom officiel complet du lieu où le visiteur la voit","ville":""},"exposition":"nom de l'exposition temporaire si elle y est présentée, sinon ''","en_pret":false,"candidats":[{"titre":"","artiste":"","institution":""}],"remarque":"une phrase sur ce qui fonde ou limite l'identification"}
@@ -354,6 +356,10 @@ async function shrink(file,max=1600){
   }finally{URL.revokeObjectURL(url)}
 }
 const busy=()=>['ident','fiche','ocr'].includes(S.cap);
+let RUN=0,CTL=null;
+function newRun(){if(CTL)CTL.abort();CTL=new AbortController();return ++RUN}
+function cancelRun(){RUN++;if(CTL){CTL.abort();CTL=null}}
+const isAbort=e=>!!e&&(e.name==='AbortError'||e.aborted===true);
 function setCartel(b){if(S.cartelUrl)URL.revokeObjectURL(S.cartelUrl);S.cartel=b;S.cartelUrl=b?URL.createObjectURL(b):''}
 function resetCap(){if(S.photo)URL.revokeObjectURL(S.photo.url);S.photo=null;setCartel(null);S.ident=null;S.match=null;S.results=[];S.query='';S.replace=null;S.cap='idle'}
 async function takeFile(file){
@@ -378,16 +384,22 @@ cv.addEventListener('drop',e=>{e.preventDefault();cv.classList.remove('drag');ta
 /* ---------- identification ---------- */
 const replBase=()=>S.replace&&S.items.find(x=>x.id===S.replace);
 const curMuseum=()=>{const m=$('#cVu');const b=replBase();const bv=b&&(b.vuA||b.musee);return (m&&m.value.trim())||(bv&&bv!=='Lieu non précisé'&&bv)||$('#vMusee').value.trim()};
-async function identify(){
-  S.cap='ident';renderCap();
+async function identify(name){
+  name=typeof name==='string'?name.trim():'';
+  const run=newRun();S.identName=name;S.cap='ident';renderCap();
   try{
-    S.ident=await geminiJSON({prompt:identPrompt(LS.get('mm.hint',''),!!S.cartel,!S.photo),images:S.photo?[S.photo.blob,...(S.cartel?[S.cartel]:[])]:[S.cartel],maxTokens:4096});
-    S.match=null;S.results=[];S.cap='confirm';renderCap();linkWikidata();
-  }catch(e){S.err=e.message;S.errAI=true;S.cap='error';renderCap()}
+    const imgs=S.photo?[S.photo.blob,...(S.cartel?[S.cartel]:[])]:S.cartel?[S.cartel]:[];
+    const d=await geminiJSON({prompt:identPrompt(name?'':LS.get('mm.hint',''),!!S.cartel,!S.photo,name),images:imgs,maxTokens:4096,signal:CTL.signal});
+    if(run!==RUN)return;
+    S.ident=d;S.match=null;S.results=[];S.cap='confirm';renderCap();linkWikidata();
+  }catch(e){if(run!==RUN||isAbort(e))return;S.err=e.message;S.cap='error';renderCap()}
 }
+function searchByName(q){q=String(q||'').trim();if(!q)return;cancelRun();S.query=q;S.results=[];S.cap='find';renderCap()}
+const nameBox=(title,btn)=>`<form class="namebox" id="nf"><label class="f">${title}<input id="nq" placeholder="La Joconde, Léonard de Vinci" autocomplete="off"></label><button class="btn main">${btn}</button></form>`;
+let LINK=0;
 async function linkWikidata(){
   const d=S.ident||{};if(!d.titre)return;
-  S.linking=true;renderLink();
+  const run=++LINK;S.linking=true;renderLink();
   try{
     const mq=await museumQid(curMuseum());
     const sur=String(d.artiste||'').split(/\s+/).filter(w=>w.length>2).pop()||'';
@@ -396,21 +408,30 @@ async function linkWikidata(){
     if(!r.length&&d.titre_original)r=await wdFind(d.titre_original,mq);
     const na=norm(d.artiste);
     const best=r.find(x=>x.creator&&norm(x.creator).split(' ').some(w=>w.length>3&&na.includes(w)))||r[0]||null;
+    if(run!==LINK)return;
     if(S.cap==='confirm'&&!S.match){S.match=best;S.results=r}
-  }catch(e){}
+  }catch(e){if(run!==LINK)return}
   S.linking=false;renderLink();
 }
 let findT;
+let FIND=0;
 async function runFind(q){
-  S.query=q;const box=$('#fres');if(!box)return;
-  if(!q.trim()){S.results=[];box.innerHTML='';return}
-  box.innerHTML='<p class="note"><span class="spin"></span>Recherche dans Wikidata…</p>';
-  try{const mq=await museumQid(curMuseum());const r=await wdFind(q,mq);if(S.query!==q)return;S.results=r;renderResults()}
-  catch(e){box.innerHTML=`<p class="err">${esc(e.message)}</p>`}
+  S.query=q;const box=$('#fres');if(!box)return;const run=++FIND;
+  if(!q.trim()){S.results=[];box.innerHTML='';renderMk();return}
+  box.innerHTML='<p class="note"><span class="spin"></span>Recherche dans Wikidata… <button class="linkbtn" id="fx">Annuler</button></p>';
+  $('#fx').onclick=()=>{FIND++;box.innerHTML='<p class="note">Recherche annulée.</p>';renderMk()};
+  try{const mq=await museumQid(curMuseum());const r=await wdFind(q,mq);if(run!==FIND||S.query!==q)return;S.results=r;renderResults()}
+  catch(e){if(run!==FIND)return;box.innerHTML=`<p class="err">${esc(e.message)}</p>`;renderMk()}
+}
+function renderMk(){
+  const el=$('#mk');if(!el)return;const q=(S.query||'').trim();
+  el.innerHTML=q?`<p class="note" style="margin:14px 0 8px">${S.results.length?'Aucune ne correspond ?':'Rien trouvé dans Wikidata.'}</p><button class="btn ${S.results.length?'':'main'}" id="mkb">${hasAI()?'Identifier « '+esc(q)+' » avec Gemini':'Créer la fiche « '+esc(q)+' »'}</button>`:'';
+  const b=$('#mkb');if(b)b.onclick=()=>{if(hasAI())identify(q);else{S.match=null;S.ident=Object.assign({},S.ident||{},{titre:q,fromWD:true});S.cap='confirm';renderCap()}};
 }
 function renderResults(){
   const box=$('#fres');if(!box)return;
-  if(!S.results.length){box.innerHTML=S.query?'<p class="note">Aucune œuvre trouvée. Essayez le nom de l’artiste, un autre mot du titre, ou saisissez la fiche à la main.</p>':'';return}
+  renderMk();
+  if(!S.results.length){box.innerHTML=S.query?'<p class="note">Aucune œuvre trouvée. Essayez le nom de l’artiste ou un autre mot du titre.</p>':'';return}
   box.innerHTML=S.results.map((r,i)=>`<button class="res" data-r="${i}">${r.image?`<img src="${esc(commonsThumb(r.image,160))}" alt="" loading="lazy" onerror="this.remove()">`:'<span class="noimg"></span>'}<span><b>${esc(r.label)}</b><small>${esc([r.creator,r.year].filter(Boolean).join(', ')||r.desc)}</small>${r.inMus?'<em>dans ce musée</em>':''}</span></button>`).join('');
   box.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{const r=S.results[+b.dataset.r];S.match=r;
     const had=S.ident&&S.ident.confiance&&!S.ident.fromWD;S.ident=Object.assign({},S.ident||{},{titre:r.label,artiste:r.creator||(S.ident&&S.ident.artiste)||'',date:r.year||(S.ident&&S.ident.date)||'',fromWD:!had,conservation:had&&S.ident.conservation&&S.ident.conservation.institution?S.ident.conservation:{institution:r.home||'',ville:''}});
@@ -423,16 +444,16 @@ async function readCartel(file){
   ocrCartel();
 }
 async function ocrCartel(){
-  S.cap='ocr';renderCap();
+  const run=newRun();S.cap='ocr';renderCap();
   try{
-    const lines=cartelLines(await ocr(S.cartel));
+    const lines=cartelLines(await ocr(S.cartel));if(run!==RUN)return;
     if(!lines.length)throw new Error('Texte du cartel illisible : rapprochez-vous ou évitez les reflets.');
     const mq=await museumQid(curMuseum());
     let r=[],q='';
-    for(const cand of [lines.slice(0,2).join(' '),lines[1],lines[0],lines.slice(0,3).join(' ')].filter(Boolean)){r=await wdFind(cand,mq);q=cand;if(r.length)break}
+    for(const cand of [lines.slice(0,2).join(' '),lines[1],lines[0],lines.slice(0,3).join(' ')].filter(Boolean)){r=await wdFind(cand,mq);q=cand;if(run!==RUN)return;if(r.length)break}
     S.query=q;S.results=r;S.cap='find';renderCap();
     toast('Cartel lu : « '+lines.slice(0,2).join(' / ')+' »',6000);
-  }catch(e){S.cap='find';renderCap();toast(e.message,6000)}
+  }catch(e){if(run!==RUN)return;S.cap='find';renderCap();toast(e.message,6000)}
 }
 async function savePending(){
   const it={id:S.replace||newId(),createdAt:Date.now(),visite:today(),titre:'Œuvre à identifier',artiste:'',date:'',musee:$('#vMusee').value.trim()||'Lieu non précisé',ville:$('#vVille').value.trim(),vuA:$('#vMusee').value.trim()||'Lieu non précisé',vuVille:$('#vVille').value.trim(),expo:$('#vExpo').value.trim(),conservation:'',photo:S.photo?S.photo.blob:S.cartel,cartel:S.cartel||null,pending:true,notes:'',favori:false,qa:[]};
@@ -445,7 +466,7 @@ async function savePending(){
 function renderLink(){
   const el=$('#link');if(!el)return;
   const m=S.match;
-  if(S.linking){el.innerHTML='<span class="spin"></span>Recherche de la fiche Wikipédia…';return}
+  if(S.linking){el.innerHTML='<div><span class="spin"></span>Recherche de la fiche Wikipédia…</div><button class="btn small" id="lkx">Annuler</button>';$('#lkx').onclick=()=>{LINK++;S.linking=false;renderLink()};return}
   const cc=$('#cCons');if(cc&&!cc.value.trim()&&m&&m.home){cc.value=m.home;syncVu()}
   el.innerHTML=m?`${m.image?`<img src="${esc(commonsThumb(m.image,120))}" alt="" onerror="this.remove()">`:''}<div><small>Fiche Wikidata / Wikipédia</small><b>${esc(m.label)}</b><small>${esc([m.creator,m.year].filter(Boolean).join(', '))}</small></div><button class="btn small" id="chg">Changer</button>`
     :`<div><small>Aucune fiche Wikidata liée</small>${hasAI()?'La fiche sera rédigée par Gemini seul.':'La fiche ne contiendra que vos informations.'}</div><button class="btn small" id="chg">Chercher</button>`;
@@ -466,39 +487,46 @@ function renderCap(){
     ${hasAI()?'<label class="f">Un indice pour aider (facultatif)<input id="hint" placeholder="Texte du cartel, salle, nom de l’artiste…"></label>':'<p class="note">Astuce : ajoutez une clé Gemini gratuite dans les Réglages pour que l’app reconnaisse l’œuvre sur la photo.</p>'}`;
     const h=$('#hint');if(h){h.value=LS.get('mm.hint','');h.addEventListener('input',e=>LS.set('mm.hint',e.target.value))}
   }else if(S.cap==='ident'){
-    side.innerHTML=`<h2>Je regarde l’œuvre…</h2><p class="lead">Gemini identifie l’œuvre, l’artiste et son lieu de conservation${S.cartel?' à l’aide du cartel':''}.</p>`;
+    side.innerHTML=`<h2>${S.identName?'Recherche de « '+esc(S.identName)+' »…':'Je regarde l’œuvre…'}</h2><p class="lead">Gemini identifie l’œuvre, l’artiste et son lieu de conservation${S.cartel&&!S.identName?' à l’aide du cartel':''}.</p><button class="btn" id="stop">Annuler la recherche</button>`;
+    $('#stop').onclick=()=>{cancelRun();S.cap=S.photo||S.cartel?'find':'idle';renderCap()};
   }else if(S.cap==='ocr'){
-    side.innerHTML=`<h2>Lecture du cartel…</h2><p class="lead">Le texte est lu sur le téléphone, puis recherché dans Wikidata. La première fois, le module de lecture se télécharge (quelques secondes).</p>`;
+    side.innerHTML=`<h2>Lecture du cartel…</h2><p class="lead">Le texte est lu sur le téléphone, puis recherché dans Wikidata. La première fois, le module de lecture se télécharge (quelques secondes).</p><button class="btn" id="stop">Annuler la recherche</button>`;
+    $('#stop').onclick=()=>{cancelRun();S.cap='find';renderCap()};
   }else if(S.cap==='fiche'){
-    side.innerHTML=`<h2>Préparation de la fiche…</h2><p class="lead" id="fstep">${esc(S.busy||'Données Wikidata et article Wikipédia.')}</p>`;
+    side.innerHTML=`<h2>Préparation de la fiche…</h2><p class="lead" id="fstep">${esc(S.busy||'Données Wikidata et article Wikipédia.')}</p><button class="btn" id="stop">Annuler</button>`;
+    $('#stop').onclick=()=>{cancelRun();backToForm(S.lastForm)};
   }else if(S.cap==='error'){
-    side.innerHTML=`<h2>Pas de réponse</h2><p class="err">${esc(S.err)}</p><div class="row">${S.photo&&hasAI()?'<button class="btn main" id="retry">Réessayer</button>':''}${S.photo?'<button class="btn" id="noai">Chercher sans IA</button>':''}</div>${again}`;
-    const r=$('#retry');if(r)r.onclick=identify;const n=$('#noai');if(n)n.onclick=()=>{S.cap='find';renderCap()};
+    side.innerHTML=`<h2>Identification impossible</h2><p class="err">${esc(S.err)}</p>
+    ${nameBox('Vous connaissez son nom ? Tapez-le (et l’artiste si possible)','Chercher cette œuvre')}
+    <div class="row" style="margin-top:10px">${(S.photo||S.cartel)&&hasAI()?'<button class="btn small" id="retry">Réessayer avec Gemini</button>':''}<button class="btn small" id="manual2">Saisir la fiche à la main</button></div>${again}`;
+    const r=$('#retry');if(r)r.onclick=()=>identify(S.identName);
+    $('#manual2').onclick=()=>{S.match=null;S.ident=Object.assign({},S.ident||{},{fromWD:true});S.cap='confirm';renderCap()};
   }else if(S.cap==='find'){
     const mus=curMuseum();
     side.innerHTML=`<h2>Quelle est cette œuvre ?</h2><p class="lead">Cherchez-la par son titre ou son artiste${mus?` : les œuvres de <b>${esc(mus)}</b> apparaissent en premier`:''}. Ou photographiez son cartel pour le lire automatiquement.</p>
     <form class="row" id="ff"><input class="inp" id="fq" placeholder="Titre ou artiste…" autocomplete="off" style="flex:1 1 200px;margin:0"><button class="btn main">Chercher</button></form>
     <div class="row" style="margin:12px 0">${cartelBtn}<button class="btn small" id="manual">Saisir à la main</button>${hasAI()?'<button class="btn small" id="reai">Demander à Gemini</button>':''}</div>
-    <div id="fres" class="results"></div>${again}`;
+    <div id="fres" class="results"></div><div id="mk"></div>${again}`;
     const q=$('#fq');q.value=S.query||'';
     q.addEventListener('input',()=>{clearTimeout(findT);const v=q.value;findT=setTimeout(()=>runFind(v),550)});
     $('#ff').addEventListener('submit',e=>{e.preventDefault();clearTimeout(findT);runFind(q.value)});
-    $('#manual').onclick=()=>{S.match=null;S.ident=Object.assign({},S.ident||{},{titre:q.value.trim()});S.cap='confirm';renderCap()};
-    const ra=$('#reai');if(ra)ra.onclick=identify;
+    $('#manual').onclick=()=>{S.match=null;S.ident=Object.assign({},S.ident||{},{titre:q.value.trim(),fromWD:true});S.cap='confirm';renderCap()};
+    const ra=$('#reai');if(ra)ra.onclick=()=>identify(q.value.trim());
     if(S.results.length)renderResults();else if(S.query)runFind(S.query);
   }else if(S.cap==='confirm'){
     const d=S.ident||{};const ai=hasAI()&&!d.fromWD&&d.confiance;const c=['haute','moyenne','faible'].includes(d.confiance)?d.confiance:'moyenne';
     const lv=d.lieu_visite||{},co=d.conservation||{};
     const rb=replBase();const vm=rb?rb.vuA||rb.musee:$('#vMusee').value.trim(),vx=rb?rb.expo||'':$('#vExpo').value.trim();
     const cand=ai?(Array.isArray(d.candidats)?d.candidats:[]).filter(x=>x&&x.titre).slice(0,3):[];
-    side.innerHTML=`<div class="cartel">${ai?`<span class="conf ${c}">${d.reconnu===false?'Œuvre non identifiée avec certitude':'Gemini · confiance '+c}</span>`:''}
+    const unsure=ai&&(d.reconnu===false||c==='faible');
+    side.innerHTML=`${unsure?`<div class="unsure"><b>Gemini n’est pas sûr de l’œuvre.</b>${nameBox('Vous connaissez son nom ? Tapez-le pour la retrouver','Chercher')}</div>`:''}<div class="cartel">${ai?`<span class="conf ${c}">${d.reconnu===false?'Œuvre non identifiée avec certitude':'Gemini · confiance '+c}</span>`:''}
     ${cand.length?`<div class="meta">Autres pistes :</div><div class="chips">${cand.map((x,i)=>`<button class="chip" data-c="${i}">${esc(x.titre)}${x.artiste?' · '+esc(x.artiste):''}</button>`).join('')}</div>`:''}
     <div class="link" id="link"></div>
     <label class="f">Titre<input id="cTitre"></label>
     <div class="g2"><label class="f">Artiste<input id="cArt"></label><label class="f">Date<input id="cDate"></label></div>
-    <label class="f">Musée de l’œuvre (où elle est conservée)<input id="cCons" list="dlMusees" placeholder="Complété par Wikidata si vide"></label>
-    <div class="g2"><label class="f">Vue à<input id="cVu" list="dlMusees"></label><label class="f">Ville<input id="cVille"></label></div>
-    <label class="f">Exposition temporaire<input id="cExpo" list="dlExpos" placeholder="Vide = collections permanentes"></label>
+    <label class="f">Musée de l’œuvre (où elle est conservée)<input id="cCons" data-sugg="musees" autocomplete="off" placeholder="Complété par Wikidata si vide"></label>
+    <div class="g2"><label class="f">Vue à<input id="cVu" data-sugg="musees" autocomplete="off"></label><label class="f">Ville<input id="cVille"></label></div>
+    <label class="f">Exposition temporaire<input id="cExpo" data-sugg="expos" autocomplete="off" placeholder="Vide = collections permanentes"></label>
     <p class="note" id="cDest" style="margin:-2px 0 14px"></p>
     ${ai&&d.remarque?`<p class="note" style="margin:-4px 0 12px">${esc(d.remarque)}</p>`:''}
     <div class="row"><button class="btn main" id="go">Créer la fiche</button>${cartelBtn}</div></div>${again}`;
@@ -517,7 +545,8 @@ function renderCap(){
   }
   side.querySelectorAll('input.re').forEach(n=>n.addEventListener('change',e=>takeFile(e.target.files[0])));
   side.querySelectorAll('input.cartelIn').forEach(n=>n.addEventListener('change',e=>{readCartel(e.target.files[0]);e.target.value=''}));
-  const cn=$('#cancel');if(cn)cn.onclick=()=>{resetCap();renderCap()};
+  const cn=$('#cancel');if(cn)cn.onclick=()=>{cancelRun();resetCap();renderCap()};
+  const nf=$('#nf');if(nf)nf.addEventListener('submit',e=>{e.preventDefault();const v=$('#nq').value.trim();if(!v){$('#nq').focus();return}searchByName(v)});
   const lt=$('#later');if(lt)lt.onclick=savePending;
   const cr=$('#crop');if(cr)cr.onclick=async()=>{const b=await openCropper(S.photo?S.photo.blob:S.cartel);if(!b)return;if(S.photo){URL.revokeObjectURL(S.photo.url);S.photo={blob:b,url:URL.createObjectURL(b)}}else setCartel(b);renderCap()};
 }
@@ -539,8 +568,14 @@ function syncVu(){
 function updDest(){const e=$('#cDest');if(!e)return;const f={conservation:$('#cCons').value.trim(),vuA:$('#cVu').value.trim()};const d=folderFor(f);
   e.innerHTML=`Rangée dans le dossier <b>${esc(d)}</b>${!f.conservation&&cfg.rangement!=='visite'?' (ou dans le musée de l’œuvre, s’il est trouvé dans Wikidata)':''}.`}
 const enPret=f=>{const h=homeName(f.conservation);return !!(f.expo&&h&&norm(h)!==norm(f.vuA||f.musee))};
+function backToForm(f){
+  S.cap='confirm';renderCap();if(!f)return;
+  const set=(id,v)=>{const e=$(id);if(e)e.value=v||''};
+  set('#cTitre',f.titre);set('#cArt',f.artiste);set('#cDate',f.date);set('#cCons',f.conservation);set('#cVu',f.vuA);set('#cVille',f.vuVille);set('#cExpo',f.expo);
+  if(S.cf){S.cf.vuDirty=true;S.cf.villeDirty=true}updDest();
+}
 function step(t){S.busy=t;const e=$('#fstep');if(e)e.textContent=t}
-async function buildSources(qid,f){
+async function buildSources(qid,f,signal){
   let wd=null,wiki=null,aw=null;
   if(qid){
     step('Données Wikidata…');try{wd=await wdFull(qid)}catch(e){}
@@ -550,7 +585,7 @@ async function buildSources(qid,f){
   let fiche=null,aiErr='';
   if(hasAI()){
     step('Analyse par Gemini…');
-    try{fiche=await geminiJSON({prompt:fichePrompt(f,wd,wiki),images:f.photo?[f.photo]:[],maxTokens:8192})}catch(e){aiErr=e.message}
+    try{fiche=await geminiJSON({prompt:fichePrompt(f,wd,wiki),images:f.photo?[f.photo]:[],maxTokens:8192,signal})}catch(e){if(isAbort(e))throw e;aiErr=e.message}
   }
   return {wd,wiki,aw,fiche,aiErr};
 }
@@ -568,14 +603,14 @@ async function create(){
   if(!S.replace&&S.cf&&!S.cf.vuDirty&&f.expo!==vis.expo){vis.expo=f.expo;saveVis();$('#vExpo').value=f.expo}
   if(!S.replace&&S.cf&&S.cf.vuDirty)setVisit(f.vuA,f.vuVille,f.expo,vis.source==='gps'&&norm(f.vuA)===norm(vis.musee)?'gps':'manuel',norm(f.vuA)===norm(vis.musee)?vis.qid:undefined,norm(f.vuA)===norm(vis.musee)&&vis.lat!=null?{lat:vis.lat,lon:vis.lon}:null);
   const qid=S.match&&S.match.qid||'';
-  S.cap='fiche';S.busy='';renderCap();
-  const src=await buildSources(qid,f);
-  if(!src.wd&&!src.fiche&&qid){S.cap='confirm';renderCap();$('#cTitre').value=f.titre;$('#cArt').value=f.artiste;$('#cDate').value=f.date;$('#cCons').value=f.conservation;$('#cVu').value=f.vuA;$('#cVille').value=f.vuVille;$('#cExpo').value=f.expo;updDest();
-    toast('Impossible de récupérer la fiche (connexion ?). Réessayez, ou « Identifier plus tard ».',6000);return}
+  S.lastForm=f;const run=newRun();S.cap='fiche';S.busy='';renderCap();
+  let src;try{src=await buildSources(qid,f,CTL.signal)}catch(e){if(run===RUN)backToForm(f);return}
+  if(run!==RUN)return;
+  if(!src.wd&&!src.fiche&&qid){backToForm(f);toast('Impossible de récupérer la fiche (connexion ?). Réessayez, ou « Identifier plus tard ».',6000);return}
   const base=S.replace&&S.items.find(x=>x.id===S.replace);
   const it={id:base?base.id:newId(),createdAt:base?base.createdAt:Date.now(),visite:base?base.visite:today(),notes:base?base.notes:'',favori:base?base.favori:false,frame:base?base.frame||'':'',qa:[],...f,qid,pending:false,...(await measure(f.photo))};
   applySources(it,src);
-  if(!it.photo){step('Image de référence…');try{Object.assign(it,await fetchRef(it),{useRef:true})}catch(e){if(S.cartel){it.photo=S.cartel;Object.assign(it,await measure(S.cartel))}}}
+  if(!it.photo){step('Image de référence…');try{Object.assign(it,await fetchRef(it),{useRef:true})}catch(e){if(S.cartel){it.photo=S.cartel;Object.assign(it,await measure(S.cartel))}}if(run!==RUN)return}
   it.musee=folderFor(it);it.ville=folderCity(it,it.musee);it.loc=base&&base.loc&&norm(base.musee)===norm(it.musee)?base.loc:locFor(it.musee);it.enPret=enPret(it);
   await save(it);
   if(src.aiErr)toast('Analyse Gemini indisponible ('+src.aiErr+') : fiche créée avec Wikipédia. « Mettre à jour » la complétera plus tard.',7000);
@@ -670,10 +705,10 @@ function renderFiche(){
     <div class="toolbar"><button class="btn small fav" id="fv" aria-pressed="${!!it.favori}">${it.favori?'Coup de cœur':'Ajouter aux coups de cœur'}</button><button class="btn small" id="cp">Copier la fiche</button>${it.photo?'<button class="btn small" id="crp">Recadrer</button>':''}${it.pending?'':'<button class="btn small" id="rg">Mettre à jour</button><button class="btn small" id="rid">Changer d’œuvre</button>'}<button class="btn small" id="dl">Supprimer</button></div>
     <details class="edit"><summary>Corriger l’œuvre ou le lieu</summary>
       <label class="f">Titre<input id="eT"></label><div class="g2"><label class="f">Artiste<input id="eA"></label><label class="f">Date<input id="eD"></label></div>
-      <label class="f">Musée de l’œuvre (où elle est conservée)<input id="eC" list="dlMusees"></label>
-      <div class="g2"><label class="f">Vue à<input id="eU" list="dlMusees"></label><label class="f">Ville<input id="eV"></label></div>
-      <div class="g2"><label class="f">Exposition temporaire<input id="eX" list="dlExpos"></label><label class="f">Date de visite<input id="eW" type="date"></label></div>
-      <label class="f">Rangée dans le dossier<input id="eM" list="dlMusees"></label>
+      <label class="f">Musée de l’œuvre (où elle est conservée)<input id="eC" data-sugg="musees" autocomplete="off"></label>
+      <div class="g2"><label class="f">Vue à<input id="eU" data-sugg="musees" autocomplete="off"></label><label class="f">Ville<input id="eV"></label></div>
+      <div class="g2"><label class="f">Exposition temporaire<input id="eX" data-sugg="expos" autocomplete="off"></label><label class="f">Date de visite<input id="eW" type="date"></label></div>
+      <label class="f">Rangée dans le dossier<input id="eM" data-sugg="musees" autocomplete="off"></label>
       <button class="btn main small" id="es">Enregistrer</button></details>
   </div>
   <div><h2>${esc(it.titre)}</h2><div class="who">${esc([it.artiste,it.date].filter(Boolean).join(', '))}</div>
@@ -1137,10 +1172,38 @@ async function migrate(){
   LS.set('mm.mig1',true);
 }
 /* ---------- navigation ---------- */
+const SUGG={musees:[],expos:[]};
+function uniq(a){const seen=new Set(),out=[];for(const x of a){const v=cap1(String(x||'').trim()),k=norm(v);if(!v||!k||k==='lieu non precise'||seen.has(k))continue;seen.add(k);out.push(v)}return out}
 function fillLists(){
-  const ms=[...new Set(S.items.map(i=>i.musee).filter(Boolean))],xs=[...new Set(S.items.map(i=>i.expo).filter(Boolean))];
-  $('#dlMusees').innerHTML=ms.map(m=>`<option value="${esc(m)}">`).join('');$('#dlExpos').innerHTML=xs.map(m=>`<option value="${esc(m)}">`).join('');
+  const its=[...S.items].sort((a,b)=>b.createdAt-a.createdAt);
+  SUGG.musees=uniq([...nearby.map(n=>n.name),vis.musee,...its.flatMap(i=>[i.musee,i.vuA,homeName(i.conservation)])]);
+  SUGG.expos=uniq([vis.expo,...its.map(i=>i.expo)]);
 }
+/* menu de suggestions (remplace les listes natives, illisibles sur Android) */
+const SG={el:null,inp:null,list:[],i:-1,busy:false};
+function sgClose(){if(SG.el)SG.el.hidden=true;SG.inp=null;SG.i=-1}
+function sgPlace(){if(!SG.inp||SG.el.hidden)return;const r=SG.inp.getBoundingClientRect();Object.assign(SG.el.style,{left:(r.left+scrollX)+'px',top:(r.bottom+scrollY+4)+'px',width:r.width+'px'})}
+function sgOpen(inp){
+  if(!SG.el){SG.el=document.createElement('div');SG.el.className='sugg';SG.el.setAttribute('role','listbox');SG.el.hidden=true;document.body.appendChild(SG.el)}
+  SG.inp=inp;const q=norm(inp.value),src=SUGG[inp.dataset.sugg]||[];
+  SG.list=src.filter(v=>!q||norm(v).includes(q)).filter(v=>norm(v)!==q).slice(0,8);SG.i=-1;
+  if(!SG.list.length){SG.el.hidden=true;return}
+  SG.el.innerHTML=SG.list.map((v,i)=>`<button type="button" role="option" data-i="${i}">${esc(v)}</button>`).join('');
+  SG.el.querySelectorAll('button').forEach(b=>{b.addEventListener('mousedown',e=>e.preventDefault());b.addEventListener('pointerdown',e=>e.preventDefault());b.onclick=()=>sgPick(+b.dataset.i)});
+  SG.el.hidden=false;sgPlace();
+}
+function sgPick(i){const inp=SG.inp,v=SG.list[i];if(!inp||v==null)return;inp.value=v;SG.busy=true;inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));SG.busy=false;sgClose()}
+document.addEventListener('focusin',e=>{const t=e.target;if(t&&t.matches&&t.matches('input[data-sugg]'))sgOpen(t);else if(SG.inp&&t!==SG.inp)sgClose()});
+document.addEventListener('input',e=>{if(!SG.busy&&e.target&&e.target.matches&&e.target.matches('input[data-sugg]'))sgOpen(e.target)});
+document.addEventListener('focusout',e=>{if(e.target===SG.inp)setTimeout(()=>{if(document.activeElement!==SG.inp)sgClose()},180)});
+document.addEventListener('keydown',e=>{
+  if(!SG.inp||e.target!==SG.inp||!SG.el||SG.el.hidden)return;
+  const n=SG.list.length;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();SG.i=(SG.i+(e.key==='ArrowDown'?1:-1)+n)%n;SG.el.querySelectorAll('button').forEach((b,i)=>b.setAttribute('aria-selected',i===SG.i))}
+  else if(e.key==='Enter'&&SG.i>=0){e.preventDefault();sgPick(SG.i)}
+  else if(e.key==='Escape')sgClose();
+});
+addEventListener('resize',sgPlace);addEventListener('scroll',sgPlace,{passive:true});
 const TABS=['capturer','musees','oeuvres','explorer','reglages'];
 function show(v){
   S.view=v;

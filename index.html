@@ -33,9 +33,9 @@
     <p class="note" id="locStatus"></p>
     <div class="chips" id="locChips"></div>
     <div class="g3">
-      <label class="f">Musée ou lieu<input id="vMusee" list="dlMusees" placeholder="Musée du Louvre" autocomplete="off"></label>
+      <label class="f">Musée ou lieu<input id="vMusee" data-sugg="musees" placeholder="Musée du Louvre" autocomplete="off"></label>
       <label class="f">Ville<input id="vVille" placeholder="Paris" autocomplete="off"></label>
-      <label class="f">Exposition temporaire (facultatif)<input id="vExpo" list="dlExpos" placeholder="Vide = collections permanentes" autocomplete="off"></label>
+      <label class="f">Exposition temporaire (facultatif)<input id="vExpo" data-sugg="expos" placeholder="Vide = collections permanentes" autocomplete="off"></label>
     </div>
   </div>
   <div class="stage">
@@ -72,7 +72,6 @@
   <div class="obar"><button class="obtn" id="cCancel">Annuler</button><button class="obtn" id="cFull">Toute l’image</button><button class="obtn main" id="cOk">Redresser</button></div>
 </div>
 
-<datalist id="dlMusees"></datalist><datalist id="dlExpos"></datalist>
 <input type="file" id="inBackup" accept="application/json,.json" hidden>
 <div class="toast" id="toast" hidden></div>
 <script src="app.js"></script>
