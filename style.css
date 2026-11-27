@@ -284,3 +284,10 @@ select,option{background-color:var(--panel);color:var(--ink)}
 .namebox .btn{width:100%}
 .unsure{margin-bottom:14px}.unsure>b{display:block;color:var(--warn);margin-bottom:-4px}
 #mk .btn{width:100%}
+.dup{background:var(--panel);border:1px solid var(--brass);border-radius:14px;padding:14px 16px;margin:0 0 18px}
+.dup>b{display:block;font-family:"Cormorant Garamond",Georgia,serif;font-size:21px}
+.dup p{margin:4px 0 6px;color:var(--mute);font-size:14px}
+.pick button small{display:block;color:var(--mute);font-size:12px;margin-top:1px}
+.pick [data-n],.pick [data-k]{flex-direction:column;align-items:flex-start;padding:8px 12px;text-align:left}
+details.mmerge{margin:-4px 0 18px}
+details.mmerge summary{cursor:pointer;color:var(--mute);font-size:14px;font-weight:500;min-height:36px;display:flex;align-items:center}
