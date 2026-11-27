@@ -23,6 +23,9 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Cache Gradle (évite de tout retélécharger à chaque build)
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Dépendances
         run: npm install
 
