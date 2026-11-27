@@ -21,7 +21,7 @@ let tt;function toast(m,ms=4200){const t=$('#toast');t.textContent=m;t.hidden=fa
 async function getJSON(url,opt){let r;try{r=await fetch(url,opt)}catch(e){throw new Error('Pas de connexion internet (ou service injoignable).')}if(!r.ok)throw new Error('Erreur '+r.status+' de '+new URL(url).hostname);return r.json()}
 
 /* ---------- réglages ---------- */
-const cfg=Object.assign({gemKey:'',model:'',models:[],autoLoc:true,frame:'auto',rangement:'origine',preferRef:false},LS.get('mm.cfg2',null)||{autoLoc:LS.get('mm.cfg',{}).autoLoc!==false});
+const cfg=Object.assign({gemKey:'',model:'',models:[],autoLoc:true,frame:'auto',rangement:'origine',preferRef:false,autoCrop:true},LS.get('mm.cfg2',null)||{autoLoc:LS.get('mm.cfg',{}).autoLoc!==false});
 const saveCfg=()=>LS.set('mm.cfg2',cfg);
 const hasAI=()=>!!cfg.gemKey;
 
@@ -398,9 +398,10 @@ async function takeFile(file){
   try{
     const blob=await shrink(file);
     const keepReplace=S.replace,keepCartel=S.cartel;resetCap();S.replace=keepReplace;if(keepCartel)setCartel(keepCartel);
-    S.photo={blob,url:URL.createObjectURL(blob)};S.photoHash='';
+    let blob2=blob;if(cfg.autoCrop!==false)blob2=await autoCropOffer(blob);
+    S.photo={blob:blob2,url:URL.createObjectURL(blob2)};S.photoHash='';
     startIdentify();
-    phash(blob).then(h=>{if(S.photo&&S.photo.blob===blob){S.photoHash=h;renderDup()}});
+    phash(blob2).then(h=>{if(S.photo&&S.photo.blob===blob2){S.photoHash=h;renderDup()}});
   }catch(e){S.err=e.message;S.cap='error';renderCap()}
 }
 function startIdentify(){if(hasAI())identify();else{S.cap='find';renderCap();setTimeout(()=>{const q=$('#fq');if(q)q.focus()},50)}}
@@ -929,6 +930,9 @@ async function renderReglages(){
   <div class="card"><h3>Image dans le cadre</h3>
     <label class="sw"><input type="checkbox" id="sRef"><div><b>Afficher l’image de référence quand elle existe</b><span>Pour les œuvres reliées à Wikidata, l’image de Wikimedia Commons remplace votre photo dans les cadres, le mur et les listes (elle est téléchargée une fois puis gardée sur l’appareil). Votre photo reste disponible, et chaque fiche a son propre choix.</span></div></label>
   </div>
+  <div class="card"><h3>Recadrage</h3>
+    <label class="sw"><input type="checkbox" id="sCrop"><div><b>Proposer un recadrage automatique après chaque photo</b><span>Avant l’analyse, l’app repère les bords du tableau (sans son cadre quand elle le distingue) et redresse la perspective. Vous pouvez ajuster les coins ou garder la photo entière. Le bouton « Automatique » est aussi disponible dans « Recadrer ».</span></div></label>
+  </div>
   <div class="card"><h3>Localisation</h3>
     <label class="sw"><input type="checkbox" id="sLoc"><div><b>Détecter automatiquement le musée</b><span>À l’ouverture de l’app (et au retour après 20 min), votre position est comparée aux musées d’OpenStreetMap. Vous pouvez toujours saisir ou corriger le lieu à la main.</span></div></label>
   </div>
@@ -948,6 +952,7 @@ async function renderReglages(){
   $('#sShow').onclick=()=>{k.type=k.type==='password'?'text':'password';$('#sShow').textContent=k.type==='password'?'Afficher':'Masquer'};
   const sd=$('#sDel');if(sd)sd.onclick=()=>{cfg.gemKey='';saveCfg();renderReglages();renderCap();toast('Clé retirée : l’app fonctionne sans IA.')};
   const m=$('#sModel');m.value=cfg.model||PREF[0];m.onchange=()=>{cfg.model=m.value;saveCfg()};
+  const sc=$('#sCrop');sc.checked=cfg.autoCrop!==false;sc.onchange=()=>{cfg.autoCrop=sc.checked;saveCfg()};
   const l=$('#sLoc');l.checked=cfg.autoLoc;l.onchange=()=>{cfg.autoLoc=l.checked;saveCfg();if(l.checked)toast('La détection se fera à la prochaine ouverture, ou avec « Me localiser ».')};
   const sr=$('#sRef');sr.checked=!!cfg.preferRef;sr.onchange=async()=>{cfg.preferRef=sr.checked;saveCfg();if(sr.checked){const todo=S.items.filter(i=>i.wd&&i.wd.image&&!i.refPhoto&&i.useRef!==false);if(todo.length){toast('Téléchargement de '+plural(todo.length,'image')+' de référence…');let ok=0;for(const i of todo){try{await upd(i.id,await fetchRef(i));ok++}catch(e){}}toast(ok+' / '+todo.length+' image'+(todo.length>1?'s':'')+' de référence téléchargée'+(ok>1?'s':''))}}};
   root.querySelectorAll('#spick [data-f]').forEach(b=>b.onclick=()=>{cfg.frame=b.dataset.f||'auto';saveCfg();renderReglages()});
@@ -1131,15 +1136,17 @@ function vZoom(px,py,k){const ns=Math.min(6,Math.max(1,VW.s*k));k=ns/VW.s;VW.x=p
 
 /* ---------- recadrage en perspective ---------- */
 const C={img:null,url:'',q:null,drag:-1,res:null,out:null,ds:1,k:1};
-function openCropper(blob){
+function openCropper(blob,opt={}){
   return new Promise(async res=>{
     if(!blob)return res(null);
     const url=URL.createObjectURL(blob);
     const img=await new Promise(ok=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=url});
     if(!img){URL.revokeObjectURL(url);return res(null)}
     const W=img.naturalWidth,H=img.naturalHeight,m=.06;
-    Object.assign(C,{img,url,res,out:null,drag:-1,q:[[W*m,H*m],[W*(1-m),H*m],[W*(1-m),H*(1-m)],[W*m,H*(1-m)]]});
-    $('#cOk').disabled=false;$('#cOk').textContent='Redresser';
+    Object.assign(C,{img,url,res,out:null,drag:-1,q:opt.quad||[[W*m,H*m],[W*(1-m),H*m],[W*(1-m),H*(1-m)],[W*m,H*(1-m)]]});
+    $('#cTitle').textContent=opt.propose?'Recadrage automatique proposé : ajustez les coins si besoin':'Placez les 4 coins sur les bords de l’œuvre';
+    $('#cCancel').textContent=opt.propose?'Garder la photo entière':'Annuler';
+    $('#cOk').disabled=false;$('#cOk').textContent=opt.propose?'Recadrer':'Redresser';
     openOverlay($('#cropper'));requestAnimationFrame(cLayout);
   });
 }
@@ -1171,6 +1178,7 @@ function cDraw(){
   can.addEventListener('pointermove',e=>{if(C.drag<0)return;const [px,py]=pos(e);C.q[C.drag]=[Math.max(0,Math.min(C.img.naturalWidth,px+C.off[0])),Math.max(0,Math.min(C.img.naturalHeight,py+C.off[1]))];cDraw()});
   const up=()=>{if(C.drag>=0){C.drag=-1;cDraw()}};can.addEventListener('pointerup',up);can.addEventListener('pointercancel',up);
   $('#cCancel').onclick=()=>{C.out=null;backOrClose()};
+  $('#cAuto').onclick=()=>{if(!C.img)return;let q=null;try{q=detectQuad(C.img)}catch(e){}if(q){C.q=q;cDraw();toast('Bords de l’œuvre détectés')}else toast('Bords de l’œuvre non détectés : placez les coins à la main.')};
   $('#cFull').onclick=()=>{const W=C.img.naturalWidth,H=C.img.naturalHeight;C.q=[[0,0],[W,0],[W,H],[0,H]];cDraw()};
   $('#cOk').onclick=async()=>{const b=$('#cOk');b.disabled=true;b.textContent='Redressement…';await new Promise(r=>setTimeout(r,30));try{C.out=await warp()}catch(e){C.out=null;toast('Recadrage impossible : '+e.message)}backOrClose()};
 }
@@ -1198,6 +1206,113 @@ async function warp(){
     o[oi+3]=255;
   }
   ox.putImageData(out,0,0);return await new Promise(r=>oc.toBlob(r,'image/jpeg',.88));
+}
+
+/* ---------- détection automatique de l’œuvre (bords du tableau / du cadre) ---------- */
+function detectQuad(img){
+  const NW=img.naturalWidth||img.width,NH=img.naturalHeight||img.height;if(!NW||!NH)return null;
+  const s=Math.min(1,320/Math.max(NW,NH)),w=Math.max(8,Math.round(NW*s)),h=Math.max(8,Math.round(NH*s)),sx=w/NW,sy=h/NH;
+  const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,w,h);
+  const d=x.getImageData(0,0,w,h).data,n=w*h,g=new Float32Array(n),t=new Float32Array(n),gx=new Float32Array(n),gy=new Float32Array(n),mg=new Float32Array(n);
+  const K=[1,4,6,4,1],cl=(v,m)=>v<0?0:v>m?m:v;
+  // gradient couleur : pour chaque pixel, le canal (R, V ou B) qui varie le plus
+  for(let ch=0;ch<3;ch++){
+    for(let i=0;i<n;i++)g[i]=d[i*4+ch];
+    for(let y=0;y<h;y++)for(let X=0;X<w;X++){let a=0;for(let k=-2;k<=2;k++)a+=K[k+2]*g[y*w+cl(X+k,w-1)];t[y*w+X]=a/16}
+    for(let y=0;y<h;y++)for(let X=0;X<w;X++){let a=0;for(let k=-2;k<=2;k++)a+=K[k+2]*t[cl(y+k,h-1)*w+X];g[y*w+X]=a/16}
+    for(let y=1;y<h-1;y++)for(let X=1;X<w-1;X++){const i=y*w+X;
+      const a=g[i-w-1],b=g[i-w],cc=g[i-w+1],dd=g[i-1],f=g[i+1],G=g[i+w-1],H=g[i+w],I=g[i+w+1];
+      const vx=(cc+2*f+I)-(a+2*dd+G),vy=(G+2*H+I)-(a+2*b+cc),m=Math.hypot(vx,vy);if(m>mg[i]){gx[i]=vx;gy[i]=vy;mg[i]=m}}
+  }
+  const srt=Float32Array.from(mg).sort(),thr=Math.max(12,srt[Math.floor(n*.88)]);
+  const E=new Uint8Array(n),Ew=new Uint8Array(n),lo=Math.max(6,thr*.35);let ne=0;
+  for(let y=1;y<h-1;y++)for(let X=1;X<w-1;X++){const i=y*w+X,m=mg[i];if(m<lo)continue;
+    let a=Math.atan2(gy[i],gx[i])*180/Math.PI;if(a<0)a+=180;let o1,o2;
+    if(a<22.5||a>=157.5){o1=i-1;o2=i+1}else if(a<67.5){o1=i-w-1;o2=i+w+1}else if(a<112.5){o1=i-w;o2=i+w}else{o1=i-w+1;o2=i+w-1}
+    if(m>=mg[o1]&&m>=mg[o2]){Ew[i]=1;if(m>=thr){E[i]=1;ne++}}}
+  if(ne<20)return null;
+  const D=new Uint8Array(n);for(let y=1;y<h-1;y++)for(let X=1;X<w-1;X++){const i=y*w+X;if(Ew[i])for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)D[i+dy*w+dx]=1}
+  // Hough : θ par pas de 1°, vote limité autour de la normale du gradient
+  const diag=Math.ceil(Math.hypot(w,h)),R=2*diag+1,acc=new Float32Array(180*R),cs=[],sn=[];
+  for(let a=0;a<180;a++){cs.push(Math.cos(a*Math.PI/180));sn.push(Math.sin(a*Math.PI/180))}
+  for(let y=1;y<h-1;y++)for(let X=1;X<w-1;X++){const i=y*w+X;if(!E[i])continue;
+    let a=Math.round(Math.atan2(gy[i],gx[i])*180/Math.PI);a=((a%180)+180)%180;
+    for(let k=-5;k<=5;k++){const th=(a+k+180)%180;acc[th*R+Math.round(X*cs[th]+y*sn[th])+diag]++}}
+  const fam=(ok,minV)=>{const pk=[];
+    for(let th=0;th<180;th++){if(!ok(th))continue;for(let r=0;r<R;r++){const v=acc[th*R+r];if(v<minV)continue;let mx=true;
+      for(let dt=-2;dt<=2&&mx;dt++)for(let dr=-2;dr<=2;dr++){if(!dt&&!dr)continue;const t2=th+dt,r2=r+dr;if(t2<0||t2>179||r2<0||r2>=R)continue;if(acc[t2*R+r2]>v){mx=false;break}}
+      if(mx)pk.push({th,rho:r-diag,v})}}
+    pk.sort((a,b)=>b.v-a.v);const out=[];
+    for(const p of pk){p.p=pos(p);if(out.some(q=>Math.abs(q.th-p.th)<4&&Math.abs(q.p-p.p)<2.5))continue;out.push(p);if(out.length>=16)break}return out};
+  const yAt=L=>(L.rho-w/2*cs[L.th])/sn[L.th],xAt=L=>(L.rho-h/2*sn[L.th])/cs[L.th];
+  let pos=yAt;const Hs=fam(th=>th>=65&&th<=115,w*.12);pos=xAt;const Vs=fam(th=>th<=25||th>=155,h*.12);
+  if(Hs.length<2||Vs.length<2)return null;
+  const inter=(A,B)=>{const a1=cs[A.th],b1=sn[A.th],a2=cs[B.th],b2=sn[B.th],det=a1*b2-a2*b1;if(Math.abs(det)<1e-6)return null;return [(A.rho*b2-B.rho*b1)/det,(a1*B.rho-a2*A.rho)/det]};
+  const sup=(p,q)=>{const L=Math.hypot(q[0]-p[0],q[1]-p[1]),N=Math.max(2,Math.round(L));let hit=0,tot=0;
+    for(let k=0;k<=N;k++){const X=Math.round(p[0]+(q[0]-p[0])*k/N),Y=Math.round(p[1]+(q[1]-p[1])*k/N);if(X<1||Y<1||X>=w-1||Y>=h-1)continue;tot++;if(D[Y*w+X])hit++}
+    return tot<N*.6?0:hit/tot};
+  const cands=[];
+  for(let i=0;i<Hs.length;i++)for(let j=0;j<Hs.length;j++){const T=Hs[i],B=Hs[j];if(B.p-T.p<h*.2)continue;
+    for(let k=0;k<Vs.length;k++)for(let l=0;l<Vs.length;l++){const Lf=Vs[k],Rt=Vs[l];if(Rt.p-Lf.p<w*.15)continue;
+      const q=[inter(T,Lf),inter(T,Rt),inter(B,Rt),inter(B,Lf)];if(q.some(p=>!p||p[0]<-w*.03||p[0]>w*1.03||p[1]<-h*.03||p[1]>h*1.03))continue;
+      let sg=0,cv=true;for(let m=0;m<4;m++){const a=q[m],b=q[(m+1)%4],e=q[(m+2)%4],cr=(b[0]-a[0])*(e[1]-b[1])-(b[1]-a[1])*(e[0]-b[0]);if(!sg)sg=Math.sign(cr);else if(Math.sign(cr)!==sg){cv=false;break}}
+      if(!cv)continue;
+      let ar=0;for(let m=0;m<4;m++){const a=q[m],b=q[(m+1)%4];ar+=a[0]*b[1]-b[0]*a[1]}ar=Math.abs(ar)/2/(w*h);if(ar<.08||ar>.985)continue;
+      const ss=[0,1,2,3].map(m=>sup(q[m],q[(m+1)%4])),mn=Math.min(...ss);if(mn<.35)continue;
+      const mean=(ss[0]+ss[1]+ss[2]+ss[3])/4;cands.push({q,ar,mn,sc:mean*(.55+.45*Math.sqrt(ar))*(.7+.3*mn)})}}
+  if(!cands.length)return null;
+  cands.sort((a,b)=>b.sc-a.sc);let best=cands[0];
+  // si l’œuvre a un cadre, on préfère la surface peinte : le quadrilatère fort le plus intérieur
+  const inside=(p,q)=>{for(let m=0;m<4;m++){const a=q[m],b=q[(m+1)%4];if((b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0])<-1)return false}return true};
+  const outer=best,mid=(q,m)=>[(q[m][0]+q[(m+1)%4][0])/2,(q[m][1]+q[(m+1)%4][1])/2];
+  const lineDist=(p,a,b)=>Math.abs((b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]))/(Math.hypot(b[0]-a[0],b[1]-a[1])||1);
+  const bandOk=c=>{const bw=[0,1,2,3].map(m=>lineDist(mid(c.q,m),outer.q[m],outer.q[(m+1)%4]));
+    const sz=Math.sqrt(outer.ar*w*h),mx=Math.max(...bw);
+    return mx<=sz*.15};
+  for(let guard=0;guard<6;guard++){
+    const inner=cands.filter(c=>c!==best&&c.mn>=.6&&c.ar>=outer.ar*.55&&c.ar<best.ar*.99&&c.sc>=outer.sc*.7&&c.q.every(p=>inside(p,best.q))&&bandOk(c));
+    if(!inner.length)break;inner.sort((a,b)=>b.sc-a.sc);best=inner[0];
+  }
+  let q=best.q.map(([X,Y])=>[X/sx,Y/sy]);
+  try{q=refineQuad(img,q,2.5/s)}catch(e){}
+  const cx=q.reduce((a,p)=>a+p[0],0)/4,cy=q.reduce((a,p)=>a+p[1],0)/4,ins=Math.max(NW,NH)*.002;
+  return q.map(([X,Y])=>{const dx=cx-X,dy=cy-Y,L=Math.hypot(dx,dy)||1;X+=dx/L*ins;Y+=dy/L*ins;
+    return [Math.max(0,Math.min(NW,X)),Math.max(0,Math.min(NH,Y))]});
+}
+// affinage sous-pixel de chaque bord sur une version plus grande de l’image
+function refineQuad(img,q,rad){
+  const NW=img.naturalWidth||img.width,NH=img.naturalHeight||img.height,s=Math.min(1,1200/Math.max(NW,NH)),w=Math.round(NW*s),h=Math.round(NH*s);
+  const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,w,h);
+  const d=x.getImageData(0,0,w,h).data;
+  const at=(X,Y)=>{X=Math.max(0,Math.min(w-1.001,X));Y=Math.max(0,Math.min(h-1.001,Y));const x0=X|0,y0=Y|0,fx=X-x0,fy=Y-y0,i=(y0*w+x0)*4,j=i+w*4,o=[0,0,0];
+    for(let c=0;c<3;c++)o[c]=(d[i+c]*(1-fx)+d[i+4+c]*fx)*(1-fy)+(d[j+c]*(1-fx)+d[j+4+c]*fx)*fy;return o};
+  const add=(a,b,c)=>[a[0]+b[0]+c[0],a[1]+b[1]+c[1],a[2]+b[2]+c[2]],dif=(a,b)=>Math.max(Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]),Math.abs(a[2]-b[2]));
+  const Q=q.map(([X,Y])=>[X*s,Y*s]),R=Math.max(3,rad*s),lines=[];
+  for(let m=0;m<4;m++){
+    const P=Q[m],T=Q[(m+1)%4],L=Math.hypot(T[0]-P[0],T[1]-P[1]),ux=(T[0]-P[0])/L,uy=(T[1]-P[1])/L,nx=-uy,ny=ux,pts=[];
+    for(let k=1;k<40;k++){const t=.06+.88*k/40,px=P[0]+(T[0]-P[0])*t,py=P[1]+(T[1]-P[1])*t;let bo=0,bv=-1;
+      for(let o=-R;o<=R;o+=.5){const A=px+nx*(o+1),B=py+ny*(o+1),A2=px+nx*(o-1),B2=py+ny*(o-1);
+        const v=dif(add(at(A,B),at(A+ux,B+uy),at(A-ux,B-uy)),add(at(A2,B2),at(A2+ux,B2+uy),at(A2-ux,B2-uy)));if(v>bv){bv=v;bo=o}}
+      if(bv>12)pts.push([px+nx*bo,py+ny*bo])}
+    if(pts.length<10){lines.push(null);continue}
+    const fit=ps=>{const mx=ps.reduce((a,p)=>a+p[0],0)/ps.length,my=ps.reduce((a,p)=>a+p[1],0)/ps.length;let sxx=0,sxy=0,syy=0;ps.forEach(([X,Y])=>{sxx+=(X-mx)**2;sxy+=(X-mx)*(Y-my);syy+=(Y-my)**2});
+      const th=.5*Math.atan2(2*sxy,sxx-syy);return {mx,my,dx:Math.cos(th),dy:Math.sin(th)}};
+    let f=fit(pts);const dist=p=>Math.abs((p[0]-f.mx)*f.dy-(p[1]-f.my)*f.dx);
+    const keep=pts.filter(p=>dist(p)<1.5);if(keep.length>=8)f=fit(keep);lines.push(f);
+  }
+  const ix=(A,B)=>{const det=A.dx*B.dy-A.dy*B.dx;if(Math.abs(det)<1e-6)return null;const t=((B.mx-A.mx)*B.dy-(B.my-A.my)*B.dx)/det;return [A.mx+A.dx*t,A.my+A.dy*t]};
+  return q.map((p0,m)=>{const A=lines[(m+3)%4],B=lines[m];if(!A||!B)return p0;const p=ix(A,B);if(!p)return p0;const r=[p[0]/s,p[1]/s];return Math.hypot(r[0]-p0[0],r[1]-p0[1])<=rad*2.5?r:p0});
+}
+window.__mm=Object.assign(window.__mm||{},{detectQuad});
+async function autoCropOffer(blob){
+  let img=null;const url=URL.createObjectURL(blob);
+  try{img=await new Promise(ok=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=url})}finally{if(!img)URL.revokeObjectURL(url)}
+  if(!img)return blob;
+  let q=null;try{q=detectQuad(img)}catch(e){}
+  URL.revokeObjectURL(url);
+  if(!q){toast('Bords de l’œuvre non détectés : photo gardée telle quelle (« Recadrer » reste possible).');return blob}
+  const out=await openCropper(blob,{quad:q,propose:true});
+  return out||blob;
 }
 
 /* ---------- explorer : carte, frise, statistiques ---------- */
