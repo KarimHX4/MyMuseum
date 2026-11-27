@@ -1232,7 +1232,7 @@ async function renderMap(){
   b.querySelectorAll('#mapm [data-k]').forEach(x=>x.onclick=()=>{LS.set('mm.mapmode',x.dataset.k);if(mapObj){try{mapObj.remove()}catch(e){}mapObj=null}renderMap()});
   let L;try{L=await loadLeaflet()}catch(e){const n=$('#mapnote');if(n)n.textContent=e.message;return}
   const el=$('#map');if(!el||S.view!=='explorer')return;
-  mapObj=L.map(el).setView([46.6,2.4],5);
+  mapObj=L.map(el,{worldCopyJump:true,minZoom:2}).setView([46.6,2.4],5);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(mapObj);
   setTimeout(()=>mapObj&&mapObj.invalidateSize(),120);
   const map=mapObj,pts=[],miss=[],mm=LS.get('mm.mapmode','visite');
